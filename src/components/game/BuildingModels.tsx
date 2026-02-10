@@ -84,20 +84,20 @@ const INDUSTRIAL_HI = [
 
 function roadModelAndRotation(variant: RoadVariant): { url: string; rotation: number } {
   // Kenney road models: straight goes along X by default, bend connects +X to -Z
-  // Kenney road models: straight runs along Z by default
+  // Kenney road models orientation corrections
   const R = Math.PI / 2;
   switch (variant) {
     case 'straight_ns': return { url: '/models/roads/road-straight.glb', rotation: R };
     case 'straight_ew': return { url: '/models/roads/road-straight.glb', rotation: 0 };
-    case 'corner_ne': return { url: '/models/roads/road-bend.glb', rotation: R };
+    case 'corner_ne': return { url: '/models/roads/road-bend.glb', rotation: -R };
     case 'corner_nw': return { url: '/models/roads/road-bend.glb', rotation: Math.PI };
     case 'corner_se': return { url: '/models/roads/road-bend.glb', rotation: 0 };
-    case 'corner_sw': return { url: '/models/roads/road-bend.glb', rotation: -R };
+    case 'corner_sw': return { url: '/models/roads/road-bend.glb', rotation: R };
     case 'cross': return { url: '/models/roads/road-crossroad.glb', rotation: 0 };
-    case 't_n': return { url: '/models/roads/road-intersection.glb', rotation: R };
-    case 't_s': return { url: '/models/roads/road-intersection.glb', rotation: -R };
-    case 't_e': return { url: '/models/roads/road-intersection.glb', rotation: 0 };
-    case 't_w': return { url: '/models/roads/road-intersection.glb', rotation: Math.PI };
+    case 't_n': return { url: '/models/roads/road-intersection.glb', rotation: Math.PI };
+    case 't_s': return { url: '/models/roads/road-intersection.glb', rotation: 0 };
+    case 't_e': return { url: '/models/roads/road-intersection.glb', rotation: R };
+    case 't_w': return { url: '/models/roads/road-intersection.glb', rotation: -R };
     case 'dead_n': return { url: '/models/roads/road-end.glb', rotation: R };
     case 'dead_s': return { url: '/models/roads/road-end.glb', rotation: -R };
     case 'dead_e': return { url: '/models/roads/road-end.glb', rotation: 0 };
