@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 
-export default function AuthPage() {
+export default function AuthPage({ onPlayGuest }: { onPlayGuest: () => void }) {
   const { signIn, signUp } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -91,6 +91,16 @@ export default function AuthPage() {
         >
           {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
         </button>
+
+        <div className="mt-6 pt-4 border-t border-border">
+          <button
+            onClick={onPlayGuest}
+            className="w-full py-2.5 rounded-lg bg-secondary text-secondary-foreground font-display text-sm tracking-wider hover:opacity-90 transition-opacity"
+          >
+            PLAY AS GUEST
+          </button>
+          <p className="text-[10px] text-muted-foreground text-center mt-2">Singleplayer only • No cloud saves</p>
+        </div>
       </div>
     </div>
   );
