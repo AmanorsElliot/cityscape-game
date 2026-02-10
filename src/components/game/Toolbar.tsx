@@ -5,7 +5,7 @@ import {
   ChevronDown, Waves,
 } from 'lucide-react';
 import { TileType, TILE_COSTS, TILE_LABELS, TILE_SIZE } from '@/types/game';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 
 interface Props {
   selected: TileType | 'bulldoze';
@@ -121,36 +121,15 @@ function getSizeLabel(type: TileType | 'bulldoze'): string | null {
 
 export default function Toolbar({ selected, onSelect, money }: Props) {
   const [openGroup, setOpenGroup] = useState<string | null>(null);
-  const toolbarRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdown when clicking outside - use click event (fires after touch) for reliability
-  useEffect(() => {
-    if (!openGroup) return;
-    const handler = (e: Event) => {
-      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
-        setOpenGroup(null);
-      }
-    };
-    // Use setTimeout to avoid the current click/touch from immediately closing it
-    const id = setTimeout(() => {
-      document.addEventListener('click', handler, true);
-      document.addEventListener('touchend', handler, true);
-    }, 10);
-    return () => {
-      clearTimeout(id);
-      document.removeEventListener('click', handler, true);
-      document.removeEventListener('touchend', handler, true);
-    };
-  }, [openGroup]);
 
   const isGroupActive = (group: ToolGroup) => group.items.some(i => i.type === selected);
 
-  const handleGroupClick = useCallback((group: ToolGroup, isOpen: boolean) => {
-    if (group.items.length === 1) {
-      onSelect(group.items[0].type);
+  const handleGroupClick = useCallback((groupId: string, itemCount: number, firstItem: TileType | 'bulldoze') => {
+    if (itemCount === 1) {
+      onSelect(firstItem);
       setOpenGroup(null);
     } else {
-      setOpenGroup(isOpen ? null : group.id);
+      setOpenGroup(prev => prev === groupId ? null : groupId);
     }
   }, [onSelect]);
 
@@ -160,70 +139,87 @@ export default function Toolbar({ selected, onSelect, money }: Props) {
   }, [onSelect]);
 
   return (
-    <div className="glass-panel rounded-2xl p-1.5 flex gap-1" ref={toolbarRef}>
-      {toolGroups.map(group => {
-        const GroupIcon = group.icon;
-        const active = isGroupActive(group);
-        const isOpen = openGroup === group.id;
+    <>
+      {/* Invisible backdrop to close dropdown when clicking outside */}
+      {openGroup && (
+        <div
+          className="fixed inset-0 z-[99]"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpenGroup(null);
+          }}
+        />
+      )}
 
-        return (
-          <div key={group.id} className="relative">
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleGroupClick(group, isOpen);
-              }}
-              className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[10px] font-display tracking-wider transition-all select-none
-                ${active ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/40'}
-              `}
-              style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
-              title={group.label}
-            >
-              <GroupIcon className="w-4 h-4" />
-              <span className="hidden sm:inline">{group.label}</span>
-              {group.items.length > 1 && <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
-            </button>
+      <div className="glass-panel rounded-2xl p-1.5 flex gap-1 relative z-[100]">
+        {toolGroups.map(group => {
+          const GroupIcon = group.icon;
+          const active = isGroupActive(group);
+          const isOpen = openGroup === group.id;
 
-            {isOpen && group.items.length > 1 && (
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-[100] rounded-xl p-1.5 min-w-[180px] shadow-xl border border-border/50 bg-card">
-                {group.items.map(({ type, icon: Icon, label }) => {
-                  const cost = TILE_COSTS[type];
-                  const canAfford = money >= cost;
-                  const isActive = selected === type;
-                  const sizeLabel = getSizeLabel(type);
+          return (
+            <div key={group.id} className="relative">
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleGroupClick(group.id, group.items.length, group.items[0].type);
+                }}
+                className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[10px] font-display tracking-wider transition-all select-none
+                  ${active ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/40'}
+                `}
+                style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
+                title={group.label}
+              >
+                <GroupIcon className="w-4 h-4" />
+                <span className="hidden sm:inline">{group.label}</span>
+                {group.items.length > 1 && <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
+              </button>
 
-                  return (
-                    <button
-                      key={type}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (canAfford) handleItemClick(type);
-                      }}
-                      disabled={!canAfford}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all select-none
-                        ${isActive ? 'bg-primary/15 text-primary' : 'text-foreground/80 hover:bg-secondary/50 hover:text-foreground'}
-                        ${!canAfford ? 'opacity-35 cursor-not-allowed' : 'cursor-pointer'}
-                      `}
-                      style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
-                    >
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-medium truncate">{label || TILE_LABELS[type]}</div>
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                          <span>${cost.toLocaleString()}</span>
-                          {sizeLabel && <span className="text-muted-foreground/60">{sizeLabel}</span>}
+              {isOpen && group.items.length > 1 && (
+                <div
+                  className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-[101] rounded-xl p-1.5 min-w-[180px] shadow-xl border border-border/50 bg-card"
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  {group.items.map(({ type, icon: Icon, label }) => {
+                    const cost = TILE_COSTS[type];
+                    const canAfford = money >= cost;
+                    const isActive = selected === type;
+                    const sizeLabel = getSizeLabel(type);
+
+                    return (
+                      <button
+                        key={type}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (canAfford) handleItemClick(type);
+                        }}
+                        disabled={!canAfford}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all select-none
+                          ${isActive ? 'bg-primary/15 text-primary' : 'text-foreground/80 hover:bg-secondary/50 hover:text-foreground'}
+                          ${!canAfford ? 'opacity-35 cursor-not-allowed' : 'cursor-pointer'}
+                        `}
+                        style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
+                      >
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium truncate">{label || TILE_LABELS[type]}</div>
+                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                            <span>${cost.toLocaleString()}</span>
+                            {sizeLabel && <span className="text-muted-foreground/60">{sizeLabel}</span>}
+                          </div>
                         </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
