@@ -16,7 +16,7 @@ import { RefreshCw, BarChart3, Save, Users, LogOut } from 'lucide-react';
 
 const Index = () => {
   const { user, loading, signOut } = useAuth();
-  const { gameState, placeTile, placeTileLine, selectTool, setSpeed, regenerateMap, setOverlay, loadSave } = useGameState();
+  const { gameState, placeTile, placeTileLine, selectTool, setSpeed, regenerateMap, setOverlay, loadSave, setRotation } = useGameState();
   const [showBudget, setShowBudget] = useState(false);
   const [showMultiplayer, setShowMultiplayer] = useState(false);
   const [guestMode, setGuestMode] = useState(false);
@@ -91,7 +91,7 @@ const Index = () => {
 
       {/* Canvas */}
       <div className="flex-1 relative">
-        <ThreeCanvas gameState={gameState} onTileClick={placeTile} onTileDrag={placeTileLine} />
+        <ThreeCanvas gameState={gameState} onTileClick={placeTile} onTileDrag={placeTileLine} onRotate={() => setRotation((gameState.rotation + 1) % 2)} />
       </div>
 
       {/* Bottom toolbar */}
@@ -130,7 +130,7 @@ const Index = () => {
 
       {/* Help hint */}
       <div className="absolute bottom-6 right-6 z-10 glass-panel rounded-xl px-3 py-2 text-xs text-muted-foreground">
-        Click to place • Drag zones/roads • Zones need roads • Water pump/sewage need water • Scroll to zoom
+        Click to place • Drag zones/roads • R to rotate • Q/E rotate camera • Right-drag pan • Scroll zoom
       </div>
     </div>
   );

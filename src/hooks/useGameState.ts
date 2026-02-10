@@ -3,6 +3,7 @@ import {
   GameState, Tile, TileType, Resources, RCIDemand, BudgetEntry, Agent, Wind, SmogParticle,
   TILE_COSTS, TILE_MAINTENANCE, SERVICE_CAPACITY, POWER_OUTPUT, OverlayType, DRAGGABLE_TYPES,
   isRCIType, getMaxLevel, isAdjacentToRoad, isAdjacentToWater, ZONE_TYPES, WATER_ADJACENT_TYPES,
+  TILE_SIZE,
 } from '@/types/game';
 import { generateTerrain } from '@/lib/terrainGen';
 import { calculateServiceCoverage } from '@/lib/serviceCoverage';
@@ -63,6 +64,9 @@ function calculateRCIDemand(grid: Tile[][], coverage: ReturnType<typeof calculat
 
   for (const row of grid) {
     for (const tile of row) {
+      // Skip secondary tiles of multi-tile buildings
+      if (tile.anchorX !== undefined) continue;
+
       const rci = countRCI(tile.type);
       const mult = popMultiplier(tile.type);
       if (rci === 'R') { R += mult; totalRLevel += tile.level * mult; }
@@ -119,8 +123,109 @@ function createInitialState(): GameState {
   return {
     grid, resources: initialResources, selectedTool: 'residential',
     tick: 0, speed: 1, gridSize: GRID_SIZE, coverage, budgetHistory: [], overlay: 'none', agents: [],
-    timeOfDay: 0, wind: initialWind, smogParticles: [], pollutionMap,
+    timeOfDay: 0, wind: initialWind, smogParticles: [], pollutionMap, rotation: 0,
   };
+}
+
+/** Get the footprint [w, h] for a tool, applying rotation */
+export function getFootprint(tool: TileType, rotation: number): [number, number] {
+  const base = TILE_SIZE[tool] || [1, 1];
+  return rotation % 2 === 0 ? [base[0], base[1]] : [base[1], base[0]];
+}
+
+/** Check if all tiles in a footprint can be placed */
+function canPlaceFootprint(
+  grid: Tile[][], x: number, y: number, w: number, h: number, tool: TileType, size: number
+): boolean {
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || nx >= size || ny < 0 || ny >= size) return false;
+      const tile = grid[ny][nx];
+      if (tile.type === 'water') return false;
+      if (!['grass', 'sand', 'forest'].includes(tile.type)) return false;
+    }
+  }
+
+  // Water adjacency check: any cell in footprint adjacent to water
+  if (WATER_ADJACENT_TYPES.includes(tool)) {
+    let hasWater = false;
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        if (isAdjacentToWater(grid, x + dx, y + dy, size)) hasWater = true;
+      }
+    }
+    if (!hasWater) return false;
+  }
+
+  return true;
+}
+
+/** Place a multi-tile building on the grid */
+function placeFootprint(
+  grid: Tile[][], x: number, y: number, w: number, h: number, tool: TileType
+): void {
+  // Anchor tile at (x, y)
+  grid[y][x] = { ...grid[y][x], type: tool, level: 1, anchorX: undefined, anchorY: undefined };
+
+  // Secondary tiles reference the anchor
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      grid[y + dy][x + dx] = {
+        ...grid[y + dy][x + dx],
+        type: tool,
+        level: 1,
+        anchorX: x,
+        anchorY: y,
+      };
+    }
+  }
+}
+
+/** Bulldoze all tiles belonging to a multi-tile building */
+function bulldozeBuilding(grid: Tile[][], x: number, y: number): boolean {
+  const tile = grid[y][x];
+  if (['grass', 'water', 'sand', 'forest'].includes(tile.type)) return false;
+
+  // Find anchor
+  const ax = tile.anchorX ?? x;
+  const ay = tile.anchorY ?? y;
+  const anchorTile = grid[ay][ax];
+  const [bw, bh] = TILE_SIZE[anchorTile.type] || [1, 1];
+
+  // Check if this anchor's footprint actually covers tile at (ax,ay)
+  // We need to figure out the rotation - check if bw x bh covers the footprint
+  // Try both orientations to find which one fits
+  let w = bw, h = bh;
+  // If the furthest secondary tile extends beyond bw x bh, it's rotated
+  // Simple approach: scan for all tiles with same anchor
+  for (let sy = 0; sy < Math.max(bw, bh); sy++) {
+    for (let sx = 0; sx < Math.max(bw, bh); sx++) {
+      const nx = ax + sx, ny = ay + sy;
+      if (nx < grid[0].length && ny < grid.length) {
+        const t = grid[ny][nx];
+        if ((t.anchorX === ax && t.anchorY === ay) || (nx === ax && ny === ay && t.type === anchorTile.type)) {
+          w = Math.max(w, sx + 1);
+          h = Math.max(h, sy + 1);
+        }
+      }
+    }
+  }
+
+  // Clear all tiles in the footprint
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
+      const nx = ax + dx, ny = ay + dy;
+      if (nx < grid[0].length && ny < grid.length) {
+        const t = grid[ny][nx];
+        if ((t.anchorX === ax && t.anchorY === ay) || (nx === ax && ny === ay)) {
+          grid[ny][nx] = { ...grid[ny][nx], type: 'grass', level: 0, anchorX: undefined, anchorY: undefined };
+        }
+      }
+    }
+  }
+  return true;
 }
 
 export function useGameState() {
@@ -138,14 +243,8 @@ export function useGameState() {
     setGameState(prev => ({ ...prev, overlay }));
   }, []);
 
-  const canPlaceZone = useCallback((grid: Tile[][], x: number, y: number, tool: TileType): boolean => {
-    if (ZONE_TYPES.includes(tool)) {
-      return isAdjacentToRoad(grid, x, y, GRID_SIZE);
-    }
-    if (WATER_ADJACENT_TYPES.includes(tool)) {
-      return isAdjacentToWater(grid, x, y, GRID_SIZE);
-    }
-    return true;
+  const setRotation = useCallback((rotation: number) => {
+    setGameState(prev => ({ ...prev, rotation }));
   }, []);
 
   const placeTile = useCallback((x: number, y: number) => {
@@ -153,13 +252,11 @@ export function useGameState() {
       const tool = prev.selectedTool;
       const currentTile = prev.grid[y]?.[x];
       if (!currentTile) return prev;
-      if (currentTile.type === 'water') return prev;
 
       if (tool === 'bulldoze') {
-        if (['grass', 'water', 'sand', 'forest'].includes(currentTile.type)) return prev;
         if (prev.resources.money < TILE_COSTS.bulldoze) return prev;
         const newGrid = prev.grid.map(row => row.map(t => ({ ...t })));
-        newGrid[y][x] = { ...newGrid[y][x], type: 'grass', level: 0 };
+        if (!bulldozeBuilding(newGrid, x, y)) return prev;
         const coverage = calculateServiceCoverage(newGrid, GRID_SIZE);
         return {
           ...prev, grid: newGrid, coverage,
@@ -167,13 +264,26 @@ export function useGameState() {
         };
       }
 
-      if (!['grass', 'sand', 'forest'].includes(currentTile.type)) return prev;
+      const [fw, fh] = getFootprint(tool, prev.rotation);
+
+      if (!canPlaceFootprint(prev.grid, x, y, fw, fh, tool, GRID_SIZE)) return prev;
+
+      // Zone adjacency check (at least one tile in footprint must be adjacent to road)
+      if (ZONE_TYPES.includes(tool)) {
+        let hasRoad = false;
+        for (let dy = 0; dy < fh && !hasRoad; dy++) {
+          for (let dx = 0; dx < fw && !hasRoad; dx++) {
+            if (isAdjacentToRoad(prev.grid, x + dx, y + dy, GRID_SIZE)) hasRoad = true;
+          }
+        }
+        if (!hasRoad) return prev;
+      }
+
       const cost = TILE_COSTS[tool];
       if (prev.resources.money < cost) return prev;
-      if (!canPlaceZone(prev.grid, x, y, tool)) return prev;
 
       const newGrid = prev.grid.map(row => row.map(t => ({ ...t })));
-      newGrid[y][x] = { ...newGrid[y][x], type: tool, level: 1 };
+      placeFootprint(newGrid, x, y, fw, fh, tool);
 
       const newResources = { ...prev.resources, money: prev.resources.money - cost };
       if (isPowerType(tool)) newResources.maxPower += (POWER_OUTPUT[tool] || 100);
@@ -185,7 +295,7 @@ export function useGameState() {
 
       return { ...prev, grid: newGrid, resources: newResources, coverage };
     });
-  }, [canPlaceZone]);
+  }, []);
 
   const placeTileLine = useCallback((tiles: { x: number; y: number }[]) => {
     setGameState(prev => {
@@ -200,18 +310,26 @@ export function useGameState() {
         if (currentTile.type === 'water') continue;
 
         if (tool === 'bulldoze') {
-          if (['grass', 'water', 'sand', 'forest'].includes(currentTile.type)) continue;
           if (money < TILE_COSTS.bulldoze) continue;
-          newGrid[y][x] = { ...newGrid[y][x], type: 'grass', level: 0 };
-          money -= TILE_COSTS.bulldoze;
-          changed = true;
+          if (bulldozeBuilding(newGrid, x, y)) {
+            money -= TILE_COSTS.bulldoze;
+            changed = true;
+          }
         } else {
-          if (!['grass', 'sand', 'forest'].includes(currentTile.type)) continue;
+          const [fw, fh] = getFootprint(tool, prev.rotation);
+          if (!canPlaceFootprint(newGrid, x, y, fw, fh, tool, GRID_SIZE)) continue;
+          if (ZONE_TYPES.includes(tool)) {
+            let hasRoad = false;
+            for (let dy = 0; dy < fh && !hasRoad; dy++) {
+              for (let dx = 0; dx < fw && !hasRoad; dx++) {
+                if (isAdjacentToRoad(newGrid, x + dx, y + dy, GRID_SIZE)) hasRoad = true;
+              }
+            }
+            if (!hasRoad) continue;
+          }
           const cost = TILE_COSTS[tool];
           if (money < cost) continue;
-          if (ZONE_TYPES.includes(tool) && !isAdjacentToRoad(newGrid, x, y, GRID_SIZE)) continue;
-          if (WATER_ADJACENT_TYPES.includes(tool) && !isAdjacentToWater(newGrid, x, y, GRID_SIZE)) continue;
-          newGrid[y][x] = { ...newGrid[y][x], type: tool, level: 1 };
+          placeFootprint(newGrid, x, y, fw, fh, tool);
           money -= cost;
           changed = true;
         }
@@ -246,6 +364,9 @@ export function useGameState() {
         const newGrid = prev.grid.map(row =>
           row.map(tile => {
             const t = { ...tile };
+            // Skip secondary tiles for counting
+            if (t.anchorX !== undefined) return t;
+
             const rci = countRCI(t.type);
             const mult = popMultiplier(t.type);
             if (rci === 'R') { rCount += mult; totalRLevel += t.level * mult; }
@@ -382,7 +503,7 @@ export function useGameState() {
   const loadSave = useCallback((data: { grid_data: any; resources: any; tick: number; time_of_day: number }) => {
     setGameState(prev => {
       const grid: Tile[][] = (data.grid_data as any[][]).map(row =>
-        row.map(t => ({ type: t.type as TileType, level: t.level, x: t.x, y: t.y, elevation: t.elevation }))
+        row.map(t => ({ type: t.type as TileType, level: t.level, x: t.x, y: t.y, elevation: t.elevation, anchorX: t.anchorX, anchorY: t.anchorY }))
       );
       const coverage = calculateServiceCoverage(grid, GRID_SIZE);
       return {
@@ -397,5 +518,5 @@ export function useGameState() {
     });
   }, []);
 
-  return { gameState, placeTile, placeTileLine, selectTool, setSpeed, regenerateMap, setOverlay, loadSave };
+  return { gameState, placeTile, placeTileLine, selectTool, setSpeed, regenerateMap, setOverlay, loadSave, setRotation };
 }

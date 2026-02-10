@@ -3,9 +3,10 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
   GameState, TileType, TILE_COLORS, DRAGGABLE_TYPES, ZONE_TYPES, WATER_ADJACENT_TYPES,
-  SmogParticle, OverlayType, isRCIType,
+  SmogParticle, OverlayType, isRCIType, TILE_SIZE,
 } from '@/types/game';
 import { BuildingModel, TERRAIN_SET } from './BuildingModels';
+import { getFootprint } from '@/hooks/useGameState';
 
 const AZIMUTH_ANGLES = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
 const DAY_LENGTH = 240;
@@ -361,14 +362,36 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
   const sunIntensity = Math.max(0.15, Math.sin(sunAngle));
   const ambientIntensity = 0.25 + sunIntensity * 0.35;
 
-  // Collect buildings
+  // Collect buildings (only anchor tiles, not secondary tiles)
   const buildings = useMemo(() => {
-    const result: { x: number; z: number; type: TileType; level: number; key: string }[] = [];
+    const result: { x: number; z: number; type: TileType; level: number; key: string; fw: number; fh: number }[] = [];
     for (let z = 0; z < gridSize; z++) {
       for (let x = 0; x < gridSize; x++) {
         const tile = gameState.grid[z][x];
-        if (!TERRAIN_SET.has(tile.type)) {
-          result.push({ x, z, type: tile.type, level: tile.level, key: `${x}-${z}` });
+        if (!TERRAIN_SET.has(tile.type) && tile.anchorX === undefined) {
+          const size = TILE_SIZE[tile.type] || [1, 1];
+          // Determine actual footprint by checking if it's rotated
+          let fw = size[0], fh = size[1];
+          // Check actual extent on grid
+          if (fw !== fh) {
+            // See if it was placed rotated by checking grid extent
+            let maxDx = 0, maxDy = 0;
+            for (let dy = 0; dy < Math.max(fw, fh); dy++) {
+              for (let dx = 0; dx < Math.max(fw, fh); dx++) {
+                const nx = x + dx, ny = z + dy;
+                if (nx < gridSize && ny < gridSize) {
+                  const t = gameState.grid[ny][nx];
+                  if ((t.anchorX === x && t.anchorY === z) || (dx === 0 && dy === 0)) {
+                    maxDx = Math.max(maxDx, dx);
+                    maxDy = Math.max(maxDy, dy);
+                  }
+                }
+              }
+            }
+            fw = maxDx + 1;
+            fh = maxDy + 1;
+          }
+          result.push({ x, z, type: tile.type, level: tile.level, key: `${x}-${z}`, fw, fh });
         }
       }
     }
@@ -396,20 +419,42 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
       <Terrain grid={gameState.grid} gridSize={gridSize} />
       <WaterSurface grid={gameState.grid} gridSize={gridSize} />
 
-      {/* Buildings */}
+      {/* Buildings - position at center of footprint */}
       {buildings.map(b => (
-        <group key={b.key} position={[b.x + 0.5, 0, b.z + 0.5]}>
-          <BuildingModel type={b.type} level={b.level} />
+        <group key={b.key} position={[b.x + b.fw / 2, 0, b.z + b.fh / 2]}>
+          <BuildingModel type={b.type} level={b.level} footprintW={b.fw} footprintH={b.fh} />
         </group>
       ))}
 
-      {/* Hover highlight */}
-      {hoveredTile && (
-        <mesh position={[hoveredTile.x + 0.5, 0.03, hoveredTile.z + 0.5]} rotation={[-Math.PI / 2, 0, 0]}>
-          <planeGeometry args={[0.96, 0.96]} />
-          <meshBasicMaterial color="#ffffff" transparent opacity={0.18} depthWrite={false} />
-        </mesh>
-      )}
+      {/* Hover highlight - show full footprint */}
+      {hoveredTile && (() => {
+        const tool = gameState.selectedTool;
+        if (tool === 'bulldoze') {
+          return (
+            <mesh position={[hoveredTile.x + 0.5, 0.03, hoveredTile.z + 0.5]} rotation={[-Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[0.96, 0.96]} />
+              <meshBasicMaterial color="#ff4444" transparent opacity={0.25} depthWrite={false} />
+            </mesh>
+          );
+        }
+        const [fw, fh] = getFootprint(tool as TileType, gameState.rotation);
+        // Check if placement is valid
+        let valid = true;
+        for (let dy = 0; dy < fh && valid; dy++) {
+          for (let dx = 0; dx < fw && valid; dx++) {
+            const nx = hoveredTile.x + dx, nz = hoveredTile.z + dy;
+            if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) { valid = false; break; }
+            const tile = gameState.grid[nz][nx];
+            if (tile.type === 'water' || (!['grass', 'sand', 'forest'].includes(tile.type))) valid = false;
+          }
+        }
+        return (
+          <mesh position={[hoveredTile.x + fw / 2, 0.03, hoveredTile.z + fh / 2]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[fw * 0.96, fh * 0.96]} />
+            <meshBasicMaterial color={valid ? '#44ff44' : '#ff4444'} transparent opacity={0.22} depthWrite={false} />
+          </mesh>
+        );
+      })()}
 
       {/* Effects */}
       <SmogCloud particles={gameState.smogParticles} />
