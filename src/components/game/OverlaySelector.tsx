@@ -2,6 +2,7 @@ import { OverlayType } from '@/types/game';
 import {
   Eye, Users, DollarSign, Flame, Shield, Heart,
   Droplets, Trash2, Smile, EyeOff, GraduationCap, Bus,
+  CloudFog, Wind,
 } from 'lucide-react';
 
 interface Props {
@@ -21,6 +22,8 @@ const overlays: { type: OverlayType; icon: typeof Eye; label: string; color: str
   { type: 'sewage', icon: Trash2, label: 'Sewage', color: 'text-purple-400' },
   { type: 'education', icon: GraduationCap, label: 'Education', color: 'text-lime-400' },
   { type: 'transport', icon: Bus, label: 'Transit', color: 'text-amber-400' },
+  { type: 'pollution', icon: CloudFog, label: 'Pollution', color: 'text-stone-400' },
+  { type: 'wind', icon: Wind, label: 'Wind', color: 'text-sky-400' },
 ];
 
 export default function OverlaySelector({ current, onSelect }: Props) {

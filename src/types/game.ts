@@ -29,6 +29,22 @@ export const ZONE_TYPES: TileType[] = [
 
 export const DRAGGABLE_TYPES: (TileType | 'bulldoze')[] = ['road', 'bulldoze', ...ZONE_TYPES];
 
+// Types that must be placed adjacent to water
+export const WATER_ADJACENT_TYPES: TileType[] = ['water_pump', 'sewage'];
+
+// Types that emit air pollution
+export const POLLUTER_TYPES: TileType[] = ['power_coal', 'power_oil', 'industrial', 'industrial_md', 'industrial_hi', 'garbage_dump'];
+
+// Pollution emission strength per type
+export const POLLUTION_EMISSION: Partial<Record<TileType, number>> = {
+  power_coal: 1.0,
+  power_oil: 0.8,
+  industrial: 0.3,
+  industrial_md: 0.5,
+  industrial_hi: 0.8,
+  garbage_dump: 0.4,
+};
+
 export function isRCIType(type: TileType): 'residential' | 'commercial' | 'industrial' | null {
   if (type.startsWith('residential')) return 'residential';
   if (type.startsWith('commercial')) return 'commercial';
@@ -52,20 +68,26 @@ export function isAdjacentToRoad(grid: { type: TileType }[][], x: number, y: num
   return false;
 }
 
+export function isAdjacentToWater(grid: { type: TileType }[][], x: number, y: number, size: number): boolean {
+  const dirs = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]];
+  for (const [dx, dy] of dirs) {
+    const nx = x + dx, ny = y + dy;
+    if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[ny][nx].type === 'water') return true;
+  }
+  return false;
+}
+
 // Tile footprint in grid cells (width x height)
 export const TILE_SIZE: Partial<Record<TileType, [number, number]>> = {
-  // Power plants
   power_coal: [3, 3],
   power_oil: [3, 3],
   power_nuclear: [4, 4],
   power_wind: [2, 2],
   power_solar: [3, 2],
-  // Water/waste
   water_pump: [2, 2],
   sewage: [2, 2],
   garbage_dump: [3, 3],
   recycling_plant: [3, 2],
-  // Services
   fire_station_small: [2, 2],
   fire_station_large: [3, 3],
   police_station: [2, 2],
@@ -73,12 +95,10 @@ export const TILE_SIZE: Partial<Record<TileType, [number, number]>> = {
   prison: [4, 3],
   clinic: [2, 2],
   hospital: [3, 3],
-  // Education
   elementary_school: [2, 2],
   high_school: [3, 2],
   university: [4, 3],
   library: [2, 2],
-  // Transit
   bus_depot: [2, 2],
   airport: [5, 4],
   helipad: [2, 2],
@@ -116,7 +136,21 @@ export interface ServiceCoverage {
   transport: number[][];
 }
 
-export type OverlayType = 'none' | 'population' | 'landValue' | 'fire' | 'police' | 'health' | 'waterSupply' | 'sewage' | 'happiness' | 'education' | 'transport';
+export type OverlayType = 'none' | 'population' | 'landValue' | 'fire' | 'police' | 'health' | 'waterSupply' | 'sewage' | 'happiness' | 'education' | 'transport' | 'pollution' | 'wind';
+
+export interface Wind {
+  direction: number; // radians, 0 = east, PI/2 = south
+  speed: number; // 0-1 normalized
+}
+
+export interface SmogParticle {
+  id: number;
+  x: number; // grid position (float)
+  y: number;
+  size: number; // 0.5-2
+  opacity: number; // 0-0.6
+  sourceType: TileType;
+}
 
 export interface Agent {
   id: number;
@@ -142,6 +176,7 @@ export interface Resources {
   maxWaterSupply: number;
   sewageCapacity: number;
   maxSewageCapacity: number;
+  sickness: number; // 0-100 percentage
   demand: RCIDemand;
 }
 
@@ -157,6 +192,9 @@ export interface GameState {
   overlay: OverlayType;
   agents: Agent[];
   timeOfDay: number;
+  wind: Wind;
+  smogParticles: SmogParticle[];
+  pollutionMap: number[][];
 }
 
 export interface Camera {
@@ -247,18 +285,15 @@ export const TILE_COLORS: Record<TileType, string[]> = {
   water: ['#2563eb', '#1d4ed8', '#1e40af'],
   sand: ['#e8d5a3', '#d4c08a', '#c4a86e'],
   forest: ['#1a5c1a', '#226b22', '#155215'],
-  // Power
   power_coal: ['#6b7280', '#4b5563', '#374151'],
   power_oil: ['#78716c', '#57534e', '#44403c'],
   power_wind: ['#e0f2fe', '#bae6fd', '#7dd3fc'],
   power_solar: ['#fef08a', '#fde047', '#facc15'],
   power_nuclear: ['#d9f99d', '#bef264', '#a3e635'],
-  // Water/Waste
   water_pump: ['#38bdf8', '#0ea5e9', '#0284c7'],
   sewage: ['#a78bfa', '#8b5cf6', '#7c3aed'],
   garbage_dump: ['#78716c', '#57534e', '#44403c'],
   recycling_plant: ['#6ee7b7', '#34d399', '#10b981'],
-  // Services
   fire_station_small: ['#fca5a5', '#f87171', '#ef4444'],
   fire_station_large: ['#f87171', '#ef4444', '#dc2626'],
   police_station: ['#60a5fa', '#3b82f6', '#1d4ed8'],
@@ -266,12 +301,10 @@ export const TILE_COLORS: Record<TileType, string[]> = {
   prison: ['#9ca3af', '#6b7280', '#4b5563'],
   clinic: ['#fca5a5', '#fb923c', '#f97316'],
   hospital: ['#fb923c', '#f97316', '#ea580c'],
-  // Education
   elementary_school: ['#bef264', '#a3e635', '#84cc16'],
   high_school: ['#a3e635', '#84cc16', '#65a30d'],
   university: ['#c084fc', '#a855f7', '#9333ea'],
   library: ['#fde68a', '#fcd34d', '#fbbf24'],
-  // Transit
   bus_depot: ['#fde68a', '#fcd34d', '#fbbf24'],
   airport: ['#e2e8f0', '#cbd5e1', '#94a3b8'],
   helipad: ['#d1d5db', '#9ca3af', '#6b7280'],
@@ -297,5 +330,4 @@ export const TILE_LABELS: Record<TileType | 'bulldoze', string> = {
   bulldoze: 'Bulldoze',
 };
 
-// Category for toolbar grouping
 export type ToolCategory = 'zones_res' | 'zones_com' | 'zones_ind' | 'roads' | 'power' | 'water' | 'services' | 'education' | 'transit';

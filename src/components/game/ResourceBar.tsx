@@ -1,4 +1,4 @@
-import { DollarSign, Users, Smile, Zap, Droplets, Trash2 } from 'lucide-react';
+import { DollarSign, Users, Smile, Zap, Droplets, Trash2, Thermometer } from 'lucide-react';
 import { Resources } from '@/types/game';
 
 interface Props {
@@ -17,6 +17,8 @@ export default function ResourceBar({ resources }: Props) {
       color: resources.waterSupply <= resources.maxWaterSupply ? 'text-blue-300' : 'text-red-400' },
     { icon: Trash2, label: 'Sewage', value: `${resources.sewageCapacity}/${resources.maxSewageCapacity}`,
       color: resources.sewageCapacity <= resources.maxSewageCapacity ? 'text-purple-300' : 'text-red-400' },
+    { icon: Thermometer, label: 'Sick', value: `${resources.sickness}%`,
+      color: resources.sickness < 10 ? 'text-green-400' : resources.sickness < 30 ? 'text-yellow-400' : 'text-red-400' },
   ];
 
   return (
