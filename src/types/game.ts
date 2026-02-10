@@ -111,6 +111,8 @@ export interface Tile {
   x: number;
   y: number;
   elevation: number;
+  anchorX?: number; // For secondary tiles of multi-tile buildings, references anchor tile
+  anchorY?: number;
 }
 
 export interface RCIDemand {
@@ -195,6 +197,7 @@ export interface GameState {
   wind: Wind;
   smogParticles: SmogParticle[];
   pollutionMap: number[][];
+  rotation: number; // 0 or 1, toggles footprint w/h for non-square buildings
 }
 
 export interface Camera {
