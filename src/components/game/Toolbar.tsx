@@ -123,13 +123,17 @@ export default function Toolbar({ selected, onSelect, money }: Props) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const handler = (e: MouseEvent | TouchEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setOpenGroup(null);
       }
     };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler);
+    };
   }, []);
 
   const isGroupActive = (group: ToolGroup) => group.items.some(i => i.type === selected);
@@ -144,7 +148,11 @@ export default function Toolbar({ selected, onSelect, money }: Props) {
         return (
           <div key={group.id} className="relative">
             <button
-              onClick={() => {
+              onPointerDown={(e) => {
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
                 if (group.items.length === 1) {
                   onSelect(group.items[0].type);
                   setOpenGroup(null);
@@ -152,7 +160,7 @@ export default function Toolbar({ selected, onSelect, money }: Props) {
                   setOpenGroup(isOpen ? null : group.id);
                 }
               }}
-              className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[10px] font-display tracking-wider transition-all
+              className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[10px] font-display tracking-wider transition-all touch-manipulation
                 ${active ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/40'}
               `}
               title={group.label}
@@ -163,7 +171,10 @@ export default function Toolbar({ selected, onSelect, money }: Props) {
             </button>
 
             {isOpen && group.items.length > 1 && (
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 glass-panel rounded-xl p-1.5 min-w-[180px] shadow-xl border border-border/50 bg-background/95 backdrop-blur-xl">
+              <div
+                onPointerDown={(e) => e.stopPropagation()}
+                className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-[100] rounded-xl p-1.5 min-w-[180px] shadow-xl border border-border/50 bg-card backdrop-blur-xl"
+              >
                 {group.items.map(({ type, icon: Icon, label }) => {
                   const cost = TILE_COSTS[type];
                   const canAfford = money >= cost;
@@ -173,9 +184,10 @@ export default function Toolbar({ selected, onSelect, money }: Props) {
                   return (
                     <button
                       key={type}
-                      onClick={() => { onSelect(type); setOpenGroup(null); }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); onSelect(type); setOpenGroup(null); }}
                       disabled={!canAfford}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all
+                      className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all touch-manipulation
                         ${isActive ? 'bg-primary/15 text-primary' : 'text-foreground/80 hover:bg-secondary/50 hover:text-foreground'}
                         ${!canAfford ? 'opacity-35 cursor-not-allowed' : 'cursor-pointer'}
                       `}
