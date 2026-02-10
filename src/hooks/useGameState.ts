@@ -6,7 +6,7 @@ import {
   TILE_SIZE,
 } from '@/types/game';
 import { generateTerrain } from '@/lib/terrainGen';
-import { calculateServiceCoverage } from '@/lib/serviceCoverage';
+import { calculateServiceCoverage, calculatePowerCoverage } from '@/lib/serviceCoverage';
 import { spawnAgents, updateAgents } from '@/lib/agents';
 import { calculatePollutionMap, updateSmogParticles, calculateSickness, updateWind } from '@/lib/pollution';
 import { findTrafficLights, updateTrafficLights } from '@/lib/trafficLights';
@@ -121,10 +121,11 @@ function createInitialState(): GameState {
   const grid = generateTerrain(GRID_SIZE);
   const coverage = calculateServiceCoverage(grid, GRID_SIZE);
   const pollutionMap = createEmptyMap(GRID_SIZE);
+  const powerCoverage = calculatePowerCoverage(grid, GRID_SIZE);
   return {
     grid, resources: initialResources, selectedTool: 'residential',
     tick: 0, speed: 1, gridSize: GRID_SIZE, coverage, budgetHistory: [], overlay: 'none', agents: [],
-    timeOfDay: 0, wind: initialWind, smogParticles: [], pollutionMap, rotation: 0, trafficLights: [],
+    timeOfDay: 0, wind: initialWind, smogParticles: [], pollutionMap, powerCoverage, rotation: 0, trafficLights: [],
   };
 }
 
@@ -259,9 +260,10 @@ export function useGameState() {
         const newGrid = prev.grid.map(row => row.map(t => ({ ...t })));
         if (!bulldozeBuilding(newGrid, x, y)) return prev;
         const coverage = calculateServiceCoverage(newGrid, GRID_SIZE);
+        const powerCoverage = calculatePowerCoverage(newGrid, GRID_SIZE);
         const trafficLights = findTrafficLights(newGrid, GRID_SIZE);
         return {
-          ...prev, grid: newGrid, coverage, trafficLights,
+          ...prev, grid: newGrid, coverage, powerCoverage, trafficLights,
           resources: { ...prev.resources, money: prev.resources.money - TILE_COSTS.bulldoze, demand: calculateRCIDemand(newGrid, coverage) },
         };
       }
@@ -293,10 +295,11 @@ export function useGameState() {
       if (tool === 'sewage') newResources.maxSewageCapacity += (SERVICE_CAPACITY.sewage || 120);
 
       const coverage = calculateServiceCoverage(newGrid, GRID_SIZE);
+      const powerCoverage = calculatePowerCoverage(newGrid, GRID_SIZE);
       newResources.demand = calculateRCIDemand(newGrid, coverage);
 
       const trafficLights = tool === 'road' ? findTrafficLights(newGrid, GRID_SIZE) : prev.trafficLights;
-      return { ...prev, grid: newGrid, resources: newResources, coverage, trafficLights };
+      return { ...prev, grid: newGrid, resources: newResources, coverage, powerCoverage, trafficLights };
     });
   }, []);
 
@@ -341,9 +344,10 @@ export function useGameState() {
       if (!changed) return prev;
 
       const coverage = calculateServiceCoverage(newGrid, GRID_SIZE);
+      const powerCoverage = calculatePowerCoverage(newGrid, GRID_SIZE);
       const newResources = { ...prev.resources, money, demand: calculateRCIDemand(newGrid, coverage) };
       const trafficLights = (tool === 'road' || tool === 'bulldoze') ? findTrafficLights(newGrid, GRID_SIZE) : prev.trafficLights;
-      return { ...prev, grid: newGrid, resources: newResources, coverage, trafficLights };
+      return { ...prev, grid: newGrid, resources: newResources, coverage, powerCoverage, trafficLights };
     });
   }, []);
 
@@ -395,14 +399,19 @@ export function useGameState() {
                   (cov.education[t.y]?.[t.x] || 0) * 0.15 +
                   (cov.transport[t.y]?.[t.x] || 0) * 0.1;
 
+                // Require road-connected water and power for growth
+                const hasWater = (cov.waterSupply[t.y]?.[t.x] || 0) > 0.1;
+                const hasPower = (prev.powerCoverage?.[t.y]?.[t.x] || 0) > 0.1;
+                const utilityMult = hasWater && hasPower ? 1.0 : hasWater || hasPower ? 0.3 : 0.05;
+
                 if (rci === 'R' && demand.residential > 0.1) {
-                  if (Math.random() < (0.1 + svcBonus) * demand.residential) t.level = Math.min(maxLvl, t.level + 1);
+                  if (Math.random() < (0.1 + svcBonus) * demand.residential * utilityMult) t.level = Math.min(maxLvl, t.level + 1);
                 }
                 if (rci === 'C' && demand.commercial > 0.1) {
-                  if (Math.random() < (0.08 + svcBonus) * demand.commercial) t.level = Math.min(maxLvl, t.level + 1);
+                  if (Math.random() < (0.08 + svcBonus) * demand.commercial * utilityMult) t.level = Math.min(maxLvl, t.level + 1);
                 }
                 if (rci === 'I' && demand.industrial > 0.1) {
-                  if (Math.random() < (0.08 + svcBonus * 0.5) * demand.industrial) t.level = Math.min(maxLvl, t.level + 1);
+                  if (Math.random() < (0.08 + svcBonus * 0.5) * demand.industrial * utilityMult) t.level = Math.min(maxLvl, t.level + 1);
                 }
               }
             }
@@ -475,6 +484,7 @@ export function useGameState() {
         ));
 
         const coverage = newTick % 5 === 0 ? calculateServiceCoverage(newGrid, GRID_SIZE) : prev.coverage;
+        const powerCoverage = newTick % 5 === 0 ? calculatePowerCoverage(newGrid, GRID_SIZE) : prev.powerCoverage;
         const newDemand = calculateRCIDemand(newGrid, coverage);
 
         const budgetEntry: BudgetEntry = { tick: newTick, income: totalIncome, expenses: totalExpenses, balance: Math.round(money) };
@@ -496,7 +506,7 @@ export function useGameState() {
         }
 
         return {
-          ...prev, grid: newGrid, tick: newTick, coverage, budgetHistory, agents, timeOfDay,
+          ...prev, grid: newGrid, tick: newTick, coverage, powerCoverage, budgetHistory, agents, timeOfDay,
           wind: newWind, smogParticles, pollutionMap, trafficLights,
           resources: {
             money: Math.round(money), population, happiness: Math.round(happiness),
@@ -520,6 +530,7 @@ export function useGameState() {
         row.map(t => ({ type: t.type as TileType, level: t.level, x: t.x, y: t.y, elevation: t.elevation, anchorX: t.anchorX, anchorY: t.anchorY }))
       );
       const coverage = calculateServiceCoverage(grid, GRID_SIZE);
+      const powerCoverage = calculatePowerCoverage(grid, GRID_SIZE);
       return {
         ...prev,
         grid,
@@ -527,6 +538,7 @@ export function useGameState() {
         tick: data.tick || 0,
         timeOfDay: data.time_of_day || 0,
         coverage,
+        powerCoverage,
         agents: [],
       };
     });

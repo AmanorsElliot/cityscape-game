@@ -203,6 +203,7 @@ export interface GameState {
   wind: Wind;
   smogParticles: SmogParticle[];
   pollutionMap: number[][];
+  powerCoverage: number[][];
   rotation: number;
   trafficLights: import('@/lib/trafficLights').TrafficLight[];
 }
