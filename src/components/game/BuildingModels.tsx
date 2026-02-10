@@ -1,63 +1,120 @@
-import { useRef, useMemo } from 'react';
+import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { TileType, Tile } from '@/types/game';
-import { getRoadVariant, RoadVariant } from '@/lib/trafficLights';
+import { useGLTF } from '@react-three/drei';
+import { TileType } from '@/types/game';
+import { RoadVariant } from '@/lib/trafficLights';
+import { GLBModel, pickVariant } from './GLBModel';
 
 export const TERRAIN_SET = new Set<TileType>(['grass', 'water', 'sand', 'forest']);
 
-// --- Primitive building components ---
+// --- Model path mappings ---
 
-function House({ height, width, color, roofColor }: { height: number; width: number; color: string; roofColor: string }) {
-  return (
-    <group>
-      <mesh position={[0, height / 2, 0]}>
-        <boxGeometry args={[width, height, width]} />
-        <meshLambertMaterial color={color} />
-      </mesh>
-      <mesh position={[0, height + width * 0.2, 0]} rotation={[0, Math.PI / 4, 0]}>
-        <coneGeometry args={[width * 0.55, width * 0.4, 4]} />
-        <meshLambertMaterial color={roofColor} />
-      </mesh>
-    </group>
-  );
+const RESIDENTIAL_LOW = [
+  '/models/residential/building-type-a.glb',
+  '/models/residential/building-type-b.glb',
+  '/models/residential/building-type-c.glb',
+  '/models/residential/building-type-d.glb',
+  '/models/residential/building-type-e.glb',
+  '/models/residential/building-type-f.glb',
+];
+
+const RESIDENTIAL_MD = [
+  '/models/residential/building-type-g.glb',
+  '/models/residential/building-type-h.glb',
+  '/models/residential/building-type-i.glb',
+  '/models/residential/building-type-j.glb',
+  '/models/residential/building-type-k.glb',
+  '/models/residential/building-type-l.glb',
+];
+
+const RESIDENTIAL_HI = [
+  '/models/residential/building-type-m.glb',
+  '/models/residential/building-type-n.glb',
+  '/models/residential/building-type-o.glb',
+  '/models/residential/building-type-p.glb',
+  '/models/residential/building-type-q.glb',
+  '/models/residential/building-type-r.glb',
+];
+
+const COMMERCIAL_LOW = [
+  '/models/commercial/building-a.glb',
+  '/models/commercial/building-b.glb',
+  '/models/commercial/building-c.glb',
+  '/models/commercial/building-d.glb',
+];
+
+const COMMERCIAL_MD = [
+  '/models/commercial/building-e.glb',
+  '/models/commercial/building-f.glb',
+  '/models/commercial/building-g.glb',
+  '/models/commercial/building-h.glb',
+];
+
+const COMMERCIAL_HI = [
+  '/models/commercial/building-skyscraper-a.glb',
+  '/models/commercial/building-skyscraper-b.glb',
+  '/models/commercial/building-skyscraper-c.glb',
+  '/models/commercial/building-skyscraper-d.glb',
+  '/models/commercial/building-skyscraper-e.glb',
+];
+
+const INDUSTRIAL_LOW = [
+  '/models/industrial/building-a.glb',
+  '/models/industrial/building-b.glb',
+  '/models/industrial/building-c.glb',
+  '/models/industrial/building-d.glb',
+];
+
+const INDUSTRIAL_MD = [
+  '/models/industrial/building-e.glb',
+  '/models/industrial/building-f.glb',
+  '/models/industrial/building-g.glb',
+  '/models/industrial/building-h.glb',
+];
+
+const INDUSTRIAL_HI = [
+  '/models/industrial/building-i.glb',
+  '/models/industrial/building-j.glb',
+  '/models/industrial/building-k.glb',
+  '/models/industrial/building-l.glb',
+];
+
+// --- Road variant → model + rotation ---
+
+function roadModelAndRotation(variant: RoadVariant): { url: string; rotation: number } {
+  switch (variant) {
+    case 'straight_ns': return { url: '/models/roads/road-straight.glb', rotation: Math.PI / 2 };
+    case 'straight_ew': return { url: '/models/roads/road-straight.glb', rotation: 0 };
+    case 'corner_ne': return { url: '/models/roads/road-bend.glb', rotation: Math.PI };
+    case 'corner_nw': return { url: '/models/roads/road-bend.glb', rotation: -Math.PI / 2 };
+    case 'corner_se': return { url: '/models/roads/road-bend.glb', rotation: Math.PI / 2 };
+    case 'corner_sw': return { url: '/models/roads/road-bend.glb', rotation: 0 };
+    case 'cross': return { url: '/models/roads/road-crossroad.glb', rotation: 0 };
+    case 't_n': return { url: '/models/roads/road-intersection.glb', rotation: Math.PI };
+    case 't_s': return { url: '/models/roads/road-intersection.glb', rotation: 0 };
+    case 't_e': return { url: '/models/roads/road-intersection.glb', rotation: -Math.PI / 2 };
+    case 't_w': return { url: '/models/roads/road-intersection.glb', rotation: Math.PI / 2 };
+    case 'dead_n': return { url: '/models/roads/road-end.glb', rotation: Math.PI };
+    case 'dead_s': return { url: '/models/roads/road-end.glb', rotation: 0 };
+    case 'dead_e': return { url: '/models/roads/road-end.glb', rotation: -Math.PI / 2 };
+    case 'dead_w': return { url: '/models/roads/road-end.glb', rotation: Math.PI / 2 };
+    default: return { url: '/models/roads/road-straight.glb', rotation: 0 };
+  }
 }
 
-function Tower({ height, width, color }: { height: number; width: number; color: string }) {
+// --- Procedural fallbacks for service buildings (no GLB available) ---
+
+function ServiceBuilding({ color, height, width = 0.55 }: { color: string; height: number; width?: number }) {
   return (
     <group>
       <mesh position={[0, height / 2, 0]}>
         <boxGeometry args={[width, height, width]} />
         <meshLambertMaterial color={color} />
       </mesh>
-      {/* Window band */}
-      <mesh position={[0, height / 2, width / 2 + 0.005]}>
-        <planeGeometry args={[width * 0.7, height * 0.8]} />
-        <meshBasicMaterial color="#fdd835" opacity={0.5} transparent />
-      </mesh>
-      {/* Flat roof accent */}
-      <mesh position={[0, height + 0.02, 0]}>
-        <boxGeometry args={[width * 0.3, 0.04, width * 0.3]} />
+      <mesh position={[0, height + 0.015, 0]}>
+        <boxGeometry args={[width + 0.04, 0.03, width + 0.04]} />
         <meshLambertMaterial color="#90a4ae" />
-      </mesh>
-    </group>
-  );
-}
-
-function Factory({ color, height }: { color: string; height: number }) {
-  return (
-    <group>
-      <mesh position={[0, height / 2, 0]}>
-        <boxGeometry args={[0.6, height, 0.6]} />
-        <meshLambertMaterial color={color} />
-      </mesh>
-      <mesh position={[0.18, height + 0.25, 0.18]}>
-        <cylinderGeometry args={[0.04, 0.06, 0.5, 8]} />
-        <meshLambertMaterial color="#616161" />
-      </mesh>
-      <mesh position={[-0.15, height + 0.15, -0.15]}>
-        <cylinderGeometry args={[0.03, 0.05, 0.3, 8]} />
-        <meshLambertMaterial color="#757575" />
       </mesh>
     </group>
   );
@@ -80,7 +137,7 @@ function WindTurbine() {
       </mesh>
       <group ref={bladeRef} position={[0, 1.4, 0.07]}>
         {[0, 120, 240].map(deg => (
-          <mesh key={deg} rotation={[0, 0, (deg * Math.PI) / 180]} position={[0, 0, 0]}>
+          <mesh key={deg} rotation={[0, 0, (deg * Math.PI) / 180]}>
             <boxGeometry args={[0.03, 0.5, 0.008]} />
             <meshLambertMaterial color="#fafafa" />
           </mesh>
@@ -101,7 +158,6 @@ function SolarPanel() {
         <boxGeometry args={[0.6, 0.005, 0.4]} />
         <meshBasicMaterial color="#283593" />
       </mesh>
-      {/* Support legs */}
       <mesh position={[-0.2, 0.06, 0.1]}>
         <cylinderGeometry args={[0.015, 0.015, 0.12, 4]} />
         <meshLambertMaterial color="#9e9e9e" />
@@ -133,194 +189,6 @@ function CoolingTower() {
   );
 }
 
-function Tree({ x = 0, z = 0 }: { x?: number; z?: number }) {
-  return (
-    <group position={[x, 0, z]}>
-      <mesh position={[0, 0.12, 0]}>
-        <cylinderGeometry args={[0.015, 0.02, 0.24, 5]} />
-        <meshLambertMaterial color="#5d4037" />
-      </mesh>
-      <mesh position={[0, 0.35, 0]}>
-        <coneGeometry args={[0.12, 0.35, 6]} />
-        <meshLambertMaterial color="#2e7d32" />
-      </mesh>
-    </group>
-  );
-}
-
-function ServiceBuilding({ color, height, width = 0.55 }: { color: string; height: number; width?: number }) {
-  return (
-    <group>
-      <mesh position={[0, height / 2, 0]}>
-        <boxGeometry args={[width, height, width]} />
-        <meshLambertMaterial color={color} />
-      </mesh>
-      <mesh position={[0, height + 0.015, 0]}>
-        <boxGeometry args={[width + 0.04, 0.03, width + 0.04]} />
-        <meshLambertMaterial color="#90a4ae" />
-      </mesh>
-    </group>
-  );
-}
-
-/** Procedural road piece that adapts to neighbors */
-function RoadPiece({ variant }: { variant: RoadVariant }) {
-  const roadColor = '#37474f';
-  const lineColor = '#78909c';
-  const sidewalkColor = '#9e9e9e';
-
-  // Base road surface
-  const basePlane = (
-    <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[0.96, 0.96]} />
-      <meshLambertMaterial color={roadColor} />
-    </mesh>
-  );
-
-  // Sidewalk borders based on variant
-  const sidewalks: JSX.Element[] = [];
-  const lines: JSX.Element[] = [];
-  const sw = 0.08; // sidewalk width
-  const half = 0.48;
-
-  // Determine which sides have sidewalks (sides without road connections)
-  const { n, s, e, w } = variantToConnections(variant);
-
-  if (!n) sidewalks.push(
-    <mesh key="sw-n" position={[0, 0.025, -half + sw / 2]} rotation={[-Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[0.96, sw]} />
-      <meshLambertMaterial color={sidewalkColor} />
-    </mesh>
-  );
-  if (!s) sidewalks.push(
-    <mesh key="sw-s" position={[0, 0.025, half - sw / 2]} rotation={[-Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[0.96, sw]} />
-      <meshLambertMaterial color={sidewalkColor} />
-    </mesh>
-  );
-  if (!w) sidewalks.push(
-    <mesh key="sw-w" position={[-half + sw / 2, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[sw, 0.96]} />
-      <meshLambertMaterial color={sidewalkColor} />
-    </mesh>
-  );
-  if (!e) sidewalks.push(
-    <mesh key="sw-e" position={[half - sw / 2, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[sw, 0.96]} />
-      <meshLambertMaterial color={sidewalkColor} />
-    </mesh>
-  );
-
-  // Center line markings for straight roads
-  if (variant === 'straight_ns') {
-    lines.push(
-      <mesh key="cl" position={[0, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.02, 0.3]} />
-        <meshBasicMaterial color={lineColor} />
-      </mesh>
-    );
-    lines.push(
-      <mesh key="cl2" position={[0, 0.018, 0.3]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.02, 0.15]} />
-        <meshBasicMaterial color={lineColor} />
-      </mesh>
-    );
-  } else if (variant === 'straight_ew') {
-    lines.push(
-      <mesh key="cl" position={[0, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.3, 0.02]} />
-        <meshBasicMaterial color={lineColor} />
-      </mesh>
-    );
-    lines.push(
-      <mesh key="cl2" position={[0.3, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.15, 0.02]} />
-        <meshBasicMaterial color={lineColor} />
-      </mesh>
-    );
-  }
-
-  // Stop lines at intersections
-  if (variant === 'cross' || variant.startsWith('t_')) {
-    // Add crosswalk markings
-    if (n) lines.push(
-      <mesh key="cw-n" position={[0, 0.018, -0.32]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.5, 0.04]} />
-        <meshBasicMaterial color="#ffffff" opacity={0.6} transparent />
-      </mesh>
-    );
-    if (s) lines.push(
-      <mesh key="cw-s" position={[0, 0.018, 0.32]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.5, 0.04]} />
-        <meshBasicMaterial color="#ffffff" opacity={0.6} transparent />
-      </mesh>
-    );
-    if (e) lines.push(
-      <mesh key="cw-e" position={[0.32, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.04, 0.5]} />
-        <meshBasicMaterial color="#ffffff" opacity={0.6} transparent />
-      </mesh>
-    );
-    if (w) lines.push(
-      <mesh key="cw-w" position={[-0.32, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[0.04, 0.5]} />
-        <meshBasicMaterial color="#ffffff" opacity={0.6} transparent />
-      </mesh>
-    );
-  }
-
-  // Corner pieces - add curved line
-  if (variant.startsWith('corner_')) {
-    const cx = (variant.includes('e') ? 1 : -1) * 0.12;
-    const cz = (variant.includes('s') ? 1 : -1) * 0.12;
-    lines.push(
-      <mesh key="corner-dot" position={[cx, 0.018, cz]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.04, 8]} />
-        <meshBasicMaterial color={lineColor} />
-      </mesh>
-    );
-  }
-
-  return (
-    <group>
-      {basePlane}
-      {sidewalks}
-      {lines}
-    </group>
-  );
-}
-
-/** Convert variant name to connection booleans */
-function variantToConnections(variant: RoadVariant): { n: boolean; s: boolean; e: boolean; w: boolean } {
-  switch (variant) {
-    case 'straight_ns': return { n: true, s: true, e: false, w: false };
-    case 'straight_ew': return { n: false, s: false, e: true, w: true };
-    case 'corner_ne': return { n: true, s: false, e: true, w: false };
-    case 'corner_nw': return { n: true, s: false, e: false, w: true };
-    case 'corner_se': return { n: false, s: true, e: true, w: false };
-    case 'corner_sw': return { n: false, s: true, e: false, w: true };
-    case 't_n': return { n: true, s: false, e: true, w: true }; // T missing south
-    case 't_s': return { n: false, s: true, e: true, w: true }; // T missing north
-    case 't_e': return { n: true, s: true, e: true, w: false }; // T missing west
-    case 't_w': return { n: true, s: true, e: false, w: true }; // T missing east
-    case 'cross': return { n: true, s: true, e: true, w: true };
-    case 'dead_n': return { n: true, s: false, e: false, w: false };
-    case 'dead_s': return { n: false, s: true, e: false, w: false };
-    case 'dead_e': return { n: false, s: false, e: true, w: false };
-    case 'dead_w': return { n: false, s: false, e: false, w: true };
-    default: return { n: false, s: false, e: false, w: false };
-  }
-}
-
-function Road() {
-  return (
-    <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[0.92, 0.92]} />
-      <meshLambertMaterial color="#455a64" />
-    </mesh>
-  );
-}
-
 function AirportModel() {
   return (
     <group>
@@ -332,7 +200,6 @@ function AirportModel() {
         <boxGeometry args={[0.25, 0.3, 0.4]} />
         <meshLambertMaterial color="#b0bec5" />
       </mesh>
-      {/* Control tower */}
       <mesh position={[0.25, 0.35, 0.1]}>
         <cylinderGeometry args={[0.04, 0.04, 0.15, 8]} />
         <meshLambertMaterial color="#eceff1" />
@@ -367,12 +234,10 @@ function TrainStation() {
         <boxGeometry args={[0.7, 0.36, 0.4]} />
         <meshLambertMaterial color="#546e7a" />
       </mesh>
-      {/* Platform roof */}
       <mesh position={[0, 0.38, 0.15]}>
         <boxGeometry args={[0.75, 0.02, 0.3]} />
         <meshLambertMaterial color="#37474f" />
       </mesh>
-      {/* Tracks */}
       <mesh position={[0, 0.01, 0.35]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[0.8, 0.08]} />
         <meshLambertMaterial color="#8d6e63" />
@@ -381,43 +246,60 @@ function TrainStation() {
   );
 }
 
-export function BuildingModel({ type, level, footprintW = 1, footprintH = 1, roadVariant }: { type: TileType; level: number; footprintW?: number; footprintH?: number; roadVariant?: RoadVariant }) {
-  const h = Math.max(0.3, level * 0.25);
-  // Scale factor so multi-tile buildings fill their footprint
+// --- Main Building Model ---
+
+export function BuildingModel({ type, level, x = 0, z = 0, footprintW = 1, footprintH = 1, roadVariant }: {
+  type: TileType; level: number; x?: number; z?: number;
+  footprintW?: number; footprintH?: number; roadVariant?: RoadVariant;
+}) {
   const scaleX = footprintW;
   const scaleZ = footprintH;
-  const scale = Math.min(scaleX, scaleZ); // uniform scale for the model, positioned in center
+  const scale = Math.min(scaleX, scaleZ);
 
   const inner = (() => {
     switch (type) {
-      case 'road': return <RoadPiece variant={roadVariant || 'single'} />;
-      case 'park':
+      // --- GLB Roads ---
+      case 'road': {
+        const { url, rotation } = roadModelAndRotation(roadVariant || 'straight_ns');
+        return <GLBModel url={url} scale={1} rotationY={rotation} />;
+      }
+
+      // --- GLB Buildings ---
+      case 'residential': return <GLBModel url={pickVariant(x, z, RESIDENTIAL_LOW)} scale={0.45} />;
+      case 'residential_md': return <GLBModel url={pickVariant(x, z, RESIDENTIAL_MD)} scale={0.45} />;
+      case 'residential_hi': return <GLBModel url={pickVariant(x, z, RESIDENTIAL_HI)} scale={0.45} />;
+
+      case 'commercial': return <GLBModel url={pickVariant(x, z, COMMERCIAL_LOW)} scale={0.45} />;
+      case 'commercial_md': return <GLBModel url={pickVariant(x, z, COMMERCIAL_MD)} scale={0.45} />;
+      case 'commercial_hi': return <GLBModel url={pickVariant(x, z, COMMERCIAL_HI)} scale={0.45} />;
+
+      case 'industrial': return <GLBModel url={pickVariant(x, z, INDUSTRIAL_LOW)} scale={0.45} />;
+      case 'industrial_md': return <GLBModel url={pickVariant(x, z, INDUSTRIAL_MD)} scale={0.45} />;
+      case 'industrial_hi': return <GLBModel url={pickVariant(x, z, INDUSTRIAL_HI)} scale={0.45} />;
+
+      // --- GLB Park with nature trees ---
+      case 'park': {
+        const treeUrl = pickVariant(x, z, [
+          '/models/nature/tree_oak.glb',
+          '/models/nature/tree_default.glb',
+          '/models/nature/tree_detailed.glb',
+        ]);
         return (
           <group>
             <mesh position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
               <planeGeometry args={[0.92, 0.92]} />
               <meshLambertMaterial color="#43a047" />
             </mesh>
-            <Tree x={0.15} z={0.15} />
-            <Tree x={-0.2} z={-0.1} />
-            {level > 1 && <Tree x={0.1} z={-0.25} />}
+            <GLBModel url={treeUrl} scale={0.2} position={[0.15, 0, 0.15]} />
+            <GLBModel url={'/models/nature/tree_small.glb'} scale={0.18} position={[-0.2, 0, -0.1]} />
+            {level > 1 && <GLBModel url={'/models/nature/tree_fat.glb'} scale={0.15} position={[0.1, 0, -0.25]} />}
           </group>
         );
+      }
 
-      case 'residential': return <House height={h} width={0.45} color="#66bb6a" roofColor="#a5d6a7" />;
-      case 'residential_md': return <Tower height={h * 1.8} width={0.5} color="#26a69a" />;
-      case 'residential_hi': return <Tower height={h * 3} width={0.55} color="#00897b" />;
-
-      case 'commercial': return <Tower height={h * 1.2} width={0.45} color="#42a5f5" />;
-      case 'commercial_md': return <Tower height={h * 2.2} width={0.5} color="#5c6bc0" />;
-      case 'commercial_hi': return <Tower height={h * 3.5} width={0.5} color="#7e57c2" />;
-
-      case 'industrial': return <Factory color="#ffb300" height={h * 0.8} />;
-      case 'industrial_md': return <Factory color="#fb8c00" height={h * 1.4} />;
-      case 'industrial_hi': return <Factory color="#e65100" height={h * 2} />;
-
-      case 'power_coal': return <Factory color="#616161" height={0.55} />;
-      case 'power_oil': return <Factory color="#5d4037" height={0.5} />;
+      // --- Procedural fallbacks for unique buildings ---
+      case 'power_coal': return <GLBModel url={pickVariant(x, z, ['/models/industrial/building-m.glb', '/models/industrial/building-n.glb'])} scale={0.4} />;
+      case 'power_oil': return <GLBModel url={pickVariant(x, z, ['/models/industrial/building-o.glb', '/models/industrial/building-p.glb'])} scale={0.4} />;
       case 'power_wind': return <WindTurbine />;
       case 'power_solar': return <SolarPanel />;
       case 'power_nuclear': return <CoolingTower />;
@@ -451,9 +333,20 @@ export function BuildingModel({ type, level, footprintW = 1, footprintH = 1, roa
 
   if (!inner) return null;
 
-  // Scale model to fill footprint
   if (scaleX > 1 || scaleZ > 1) {
     return <group scale={[scaleX * 0.9, scale, scaleZ * 0.9]}>{inner}</group>;
   }
   return inner;
 }
+
+// Preload most common models
+[
+  '/models/roads/road-straight.glb',
+  '/models/roads/road-bend.glb',
+  '/models/roads/road-crossroad.glb',
+  '/models/roads/road-intersection.glb',
+  '/models/roads/road-end.glb',
+  ...RESIDENTIAL_LOW.slice(0, 3),
+  ...COMMERCIAL_LOW.slice(0, 2),
+  ...INDUSTRIAL_LOW.slice(0, 2),
+].forEach(url => useGLTF.preload(url));
