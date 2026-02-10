@@ -8,6 +8,7 @@ import {
 import { BuildingModel, TERRAIN_SET } from './BuildingModels';
 import { getFootprint } from '@/hooks/useGameState';
 import { getRoadVariant, RoadVariant, TrafficLight } from '@/lib/trafficLights';
+import { VehicleModelComponent } from './VehicleModels';
 
 const AZIMUTH_ANGLES = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
 const DAY_LENGTH = 240;
@@ -277,7 +278,7 @@ function TrafficLightsLayer({ lights }: { lights: TrafficLight[] }) {
   );
 }
 
-// --- Agents with interpolation ---
+// --- Agents with interpolation and proper vehicle models ---
 function AgentsLayer({ agents }: { agents: GameState['agents'] }) {
   if (agents.length === 0) return null;
   return (
@@ -286,9 +287,6 @@ function AgentsLayer({ agents }: { agents: GameState['agents'] }) {
         // Interpolate position between current and target
         const ix = agent.x + (agent.targetX - agent.x) * agent.progress;
         const iy = agent.y + (agent.targetY - agent.y) * agent.progress;
-        const agentH = agent.type === 'pedestrian' ? 0.06 : 0.08;
-        const agentW = agent.type === 'pedestrian' ? 0.06 : 0.12;
-        const agentD = agent.type === 'bus' ? 0.3 : agent.type === 'pedestrian' ? 0.06 : 0.2;
 
         // Calculate rotation based on direction
         const dx = agent.targetX - agent.path[agent.pathIndex].x;
@@ -296,15 +294,52 @@ function AgentsLayer({ agents }: { agents: GameState['agents'] }) {
         const rotation = Math.atan2(dx, dy);
 
         // Offset to the right side of the road based on direction
-        const laneOffset = 0.15;
-        const ox = dy * laneOffset; // perpendicular offset
+        const laneOffset = agent.type === 'pedestrian' ? 0.3 : 0.15;
+        const ox = dy * laneOffset;
         const oz = -dx * laneOffset;
 
         return (
-          <mesh key={agent.id} position={[ix + 0.5 + ox, agentH / 2 + 0.02, iy + 0.5 + oz]} rotation={[0, rotation, 0]}>
-            <boxGeometry args={[agentW, agentH, agentD]} />
-            <meshLambertMaterial color={agent.color} />
-          </mesh>
+          <group key={agent.id} position={[ix + 0.5 + ox, 0, iy + 0.5 + oz]} rotation={[0, rotation, 0]}>
+            <VehicleModelComponent vehicleModel={agent.vehicleModel} color={agent.color} type={agent.type} />
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+// --- Animated Tractors on Industrial Plots ---
+function IndustrialTractors({ grid, gridSize, tick }: { grid: GameState['grid']; gridSize: number; tick: number }) {
+  const tractors = useMemo(() => {
+    const result: { x: number; z: number; key: string }[] = [];
+    for (let z = 0; z < gridSize; z++) {
+      for (let x = 0; x < gridSize; x++) {
+        const tile = grid[z][x];
+        if ((tile.type === 'industrial' || tile.type === 'industrial_md' || tile.type === 'industrial_hi') && tile.anchorX === undefined) {
+          if (Math.random() < 0.3) { // Only some plots get tractors
+            result.push({ x, z, key: `tractor-${x}-${z}` });
+          }
+        }
+      }
+    }
+    return result;
+  }, [grid, gridSize]);
+
+  if (tractors.length === 0) return null;
+
+  return (
+    <group>
+      {tractors.map(t => {
+        // Animate tractor moving in a small circle on the plot
+        const phase = (tick * 0.05 + t.x * 1.7 + t.z * 2.3) % (Math.PI * 2);
+        const radius = 0.2;
+        const tx = t.x + 0.5 + Math.cos(phase) * radius;
+        const tz = t.z + 0.5 + Math.sin(phase) * radius;
+        const rotation = phase + Math.PI / 2;
+        return (
+          <group key={t.key} position={[tx, 0, tz]} rotation={[0, rotation, 0]}>
+            <VehicleModelComponent vehicleModel="tractor" color="#388e3c" type="car" />
+          </group>
         );
       })}
     </group>
@@ -495,6 +530,9 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
           <BuildingModel type={b.type} level={b.level} footprintW={b.fw} footprintH={b.fh} roadVariant={b.roadVariant} />
         </group>
       ))}
+
+      {/* Animated tractors on industrial plots */}
+      <IndustrialTractors grid={gameState.grid} gridSize={gridSize} tick={gameState.tick} />
 
       {/* Hover highlight - show full footprint */}
       {hoveredTile && (() => {
