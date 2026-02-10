@@ -19,14 +19,15 @@ const Index = () => {
   const { gameState, placeTile, placeTileLine, selectTool, setSpeed, regenerateMap, setOverlay, loadSave } = useGameState();
   const [showBudget, setShowBudget] = useState(false);
   const [showMultiplayer, setShowMultiplayer] = useState(false);
+  const [guestMode, setGuestMode] = useState(false);
 
   const handleLoadSave = useCallback((data: { grid_data: any; resources: any; tick: number; time_of_day: number }) => {
     loadSave(data);
   }, [loadSave]);
 
-  const { save, cityId } = useSaveSystem(user?.id, gameState, handleLoadSave);
+  const { save, cityId } = useSaveSystem(guestMode ? undefined : user?.id, gameState, handleLoadSave);
 
-  if (loading) {
+  if (loading && !guestMode) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center">
         <div className="font-display text-primary glow-text text-xl animate-pulse">LOADING...</div>
@@ -34,7 +35,7 @@ const Index = () => {
     );
   }
 
-  if (!user) return <AuthPage />;
+  if (!user && !guestMode) return <AuthPage onPlayGuest={() => setGuestMode(true)} />;
 
   return (
     <div className="fixed inset-0 bg-background overflow-hidden flex flex-col">
@@ -52,27 +53,40 @@ const Index = () => {
         >
           <BarChart3 className="w-4 h-4" />
         </button>
-        <button
-          onClick={save}
-          className="glass-panel rounded-xl p-2.5 text-muted-foreground hover:text-foreground transition-all"
-          title="Save"
-        >
-          <Save className="w-4 h-4" />
-        </button>
-        <button
-          onClick={() => setShowMultiplayer(!showMultiplayer)}
-          className={`glass-panel rounded-xl p-2.5 transition-all ${showMultiplayer ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-          title="Multiplayer"
-        >
-          <Users className="w-4 h-4" />
-        </button>
-        <button
-          onClick={signOut}
-          className="glass-panel rounded-xl p-2.5 text-muted-foreground hover:text-foreground transition-all"
-          title="Sign out"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
+        {!guestMode && (
+          <>
+            <button
+              onClick={save}
+              className="glass-panel rounded-xl p-2.5 text-muted-foreground hover:text-foreground transition-all"
+              title="Save"
+            >
+              <Save className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setShowMultiplayer(!showMultiplayer)}
+              className={`glass-panel rounded-xl p-2.5 transition-all ${showMultiplayer ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              title="Multiplayer"
+            >
+              <Users className="w-4 h-4" />
+            </button>
+            <button
+              onClick={signOut}
+              className="glass-panel rounded-xl p-2.5 text-muted-foreground hover:text-foreground transition-all"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </>
+        )}
+        {guestMode && (
+          <button
+            onClick={() => setGuestMode(false)}
+            className="glass-panel rounded-xl p-2.5 text-muted-foreground hover:text-foreground transition-all"
+            title="Sign in for cloud saves & multiplayer"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Canvas */}
