@@ -1,18 +1,38 @@
-export type TileType = 'grass' | 'residential' | 'commercial' | 'industrial' | 'road' | 'park' | 'power' | 'water' | 'sand' | 'forest';
+export type TileType =
+  | 'grass' | 'residential' | 'commercial' | 'industrial'
+  | 'road' | 'park' | 'power' | 'water' | 'sand' | 'forest'
+  | 'water_pump' | 'sewage' | 'fire_station' | 'police_station' | 'hospital';
 
 export interface Tile {
   type: TileType;
-  level: number; // 0-3, higher = more developed
+  level: number;
   x: number;
   y: number;
-  elevation: number; // terrain height
+  elevation: number;
 }
 
 export interface RCIDemand {
-  residential: number; // -1 to 1
+  residential: number;
   commercial: number;
   industrial: number;
 }
+
+export interface BudgetEntry {
+  tick: number;
+  income: number;
+  expenses: number;
+  balance: number;
+}
+
+export interface ServiceCoverage {
+  fire: number[][];      // 0-1 coverage per tile
+  police: number[][];
+  health: number[][];
+  waterSupply: number[][];
+  sewage: number[][];
+}
+
+export type OverlayType = 'none' | 'population' | 'landValue' | 'fire' | 'police' | 'health' | 'waterSupply' | 'sewage' | 'happiness';
 
 export interface Resources {
   money: number;
@@ -20,6 +40,10 @@ export interface Resources {
   happiness: number;
   power: number;
   maxPower: number;
+  waterSupply: number;
+  maxWaterSupply: number;
+  sewageCapacity: number;
+  maxSewageCapacity: number;
   demand: RCIDemand;
 }
 
@@ -28,8 +52,11 @@ export interface GameState {
   resources: Resources;
   selectedTool: TileType | 'bulldoze';
   tick: number;
-  speed: number; // 0=paused, 1=normal, 2=fast, 3=ultra
+  speed: number;
   gridSize: number;
+  coverage: ServiceCoverage;
+  budgetHistory: BudgetEntry[];
+  overlay: OverlayType;
 }
 
 export interface Camera {
@@ -38,7 +65,18 @@ export interface Camera {
   zoom: number;
 }
 
-export const BUILDABLE_TYPES: TileType[] = ['residential', 'commercial', 'industrial', 'road', 'park', 'power'];
+export const SERVICE_RADIUS: Partial<Record<TileType, number>> = {
+  fire_station: 10,
+  police_station: 12,
+  hospital: 14,
+  water_pump: 15,
+  sewage: 12,
+};
+
+export const SERVICE_CAPACITY: Partial<Record<TileType, number>> = {
+  water_pump: 150,
+  sewage: 120,
+};
 
 export const TILE_COSTS: Record<TileType | 'bulldoze', number> = {
   grass: 0,
@@ -51,7 +89,23 @@ export const TILE_COSTS: Record<TileType | 'bulldoze', number> = {
   water: 0,
   sand: 0,
   forest: 0,
+  water_pump: 400,
+  sewage: 350,
+  fire_station: 600,
+  police_station: 650,
+  hospital: 800,
   bulldoze: 10,
+};
+
+export const TILE_MAINTENANCE: Partial<Record<TileType, number>> = {
+  fire_station: 12,
+  police_station: 14,
+  hospital: 18,
+  water_pump: 8,
+  sewage: 6,
+  power: 10,
+  park: 2,
+  road: 1,
 };
 
 export const TILE_COLORS: Record<TileType, string[]> = {
@@ -65,6 +119,11 @@ export const TILE_COLORS: Record<TileType, string[]> = {
   water: ['#2563eb', '#1d4ed8', '#1e40af'],
   sand: ['#e8d5a3', '#d4c08a', '#c4a86e'],
   forest: ['#1a5c1a', '#226b22', '#155215'],
+  water_pump: ['#38bdf8', '#0ea5e9', '#0284c7'],
+  sewage: ['#a78bfa', '#8b5cf6', '#7c3aed'],
+  fire_station: ['#f87171', '#ef4444', '#dc2626'],
+  police_station: ['#60a5fa', '#3b82f6', '#1d4ed8'],
+  hospital: ['#fb923c', '#f97316', '#ea580c'],
 };
 
 export const TILE_LABELS: Record<TileType | 'bulldoze', string> = {
@@ -78,5 +137,10 @@ export const TILE_LABELS: Record<TileType | 'bulldoze', string> = {
   water: 'Water',
   sand: 'Beach',
   forest: 'Forest',
+  water_pump: 'Water Pump',
+  sewage: 'Sewage Plant',
+  fire_station: 'Fire Station',
+  police_station: 'Police',
+  hospital: 'Hospital',
   bulldoze: 'Bulldoze',
 };
