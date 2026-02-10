@@ -23,71 +23,6 @@ function fromIso(sx: number, sy: number, cam: Camera): [number, number] {
   return [Math.floor(x), Math.floor(y)];
 }
 
-function drawTile(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  cam: Camera,
-  type: TileType,
-  level: number,
-  hover: boolean
-) {
-  const [sx, sy] = toIso(x, y, cam);
-  const w = (TILE_W / 2) * cam.zoom;
-  const h = (TILE_H / 2) * cam.zoom;
-  const colors = TILE_COLORS[type];
-  const height = type === 'grass' || type === 'road' ? 0 : level * 8 * cam.zoom;
-
-  // Draw sides if has height
-  if (height > 0) {
-    // Left face
-    ctx.beginPath();
-    ctx.moveTo(sx - w, sy);
-    ctx.lineTo(sx, sy + h);
-    ctx.lineTo(sx, sy + h - height);
-    ctx.lineTo(sx - w, sy - height);
-    ctx.closePath();
-    ctx.fillStyle = colors[2];
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
-
-    // Right face
-    ctx.beginPath();
-    ctx.moveTo(sx + w, sy);
-    ctx.lineTo(sx, sy + h);
-    ctx.lineTo(sx, sy + h - height);
-    ctx.lineTo(sx + w, sy - height);
-    ctx.closePath();
-    ctx.fillStyle = colors[1];
-    ctx.fill();
-    ctx.stroke();
-  }
-
-  // Top face
-  ctx.beginPath();
-  ctx.moveTo(sx, sy - h - height);
-  ctx.lineTo(sx + w, sy - height);
-  ctx.lineTo(sx, sy + h - height);
-  ctx.lineTo(sx - w, sy - height);
-  ctx.closePath();
-  ctx.fillStyle = hover ? lighten(colors[0], 30) : colors[0];
-  ctx.fill();
-  ctx.strokeStyle = hover ? 'rgba(94,234,212,0.6)' : 'rgba(0,0,0,0.15)';
-  ctx.lineWidth = hover ? 2 : 0.5;
-  ctx.stroke();
-
-  // Building details for higher levels
-  if (level >= 2 && type !== 'road' && type !== 'grass') {
-    const dotSize = 2 * cam.zoom;
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    for (let i = 0; i < level; i++) {
-      ctx.fillRect(sx - dotSize + i * dotSize * 1.5, sy - height - 2 * cam.zoom, dotSize, dotSize);
-    }
-  }
-}
-
 function lighten(hex: string, amount: number): string {
   const num = parseInt(hex.slice(1), 16);
   const r = Math.min(255, (num >> 16) + amount);
@@ -96,54 +31,206 @@ function lighten(hex: string, amount: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
+function drawWaterTile(
+  ctx: CanvasRenderingContext2D,
+  sx: number, sy: number, w: number, h: number,
+  tick: number, x: number, y: number
+) {
+  // Animated water with wave effect
+  const waveOffset = Math.sin((tick * 0.05) + x * 0.5 + y * 0.3) * 1.5;
+  const adjustedSy = sy + waveOffset;
+
+  ctx.beginPath();
+  ctx.moveTo(sx, adjustedSy - h);
+  ctx.lineTo(sx + w, adjustedSy);
+  ctx.lineTo(sx, adjustedSy + h);
+  ctx.lineTo(sx - w, adjustedSy);
+  ctx.closePath();
+
+  // Gradient water color
+  const depth = Math.sin(x * 0.3 + y * 0.4) * 0.15;
+  const r = Math.floor(30 + depth * 20);
+  const g = Math.floor(80 + depth * 30);
+  const b = Math.floor(200 + depth * 40);
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
+  ctx.fill();
+
+  // Specular highlight
+  ctx.fillStyle = `rgba(140, 200, 255, ${0.1 + Math.sin(tick * 0.08 + x + y) * 0.08})`;
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(100, 180, 255, 0.15)';
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+}
+
+function drawTile(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number,
+  cam: Camera,
+  type: TileType,
+  level: number,
+  hover: boolean,
+  tick: number
+) {
+  const [sx, sy] = toIso(x, y, cam);
+  const w = (TILE_W / 2) * cam.zoom;
+  const h = (TILE_H / 2) * cam.zoom;
+
+  // Culling: skip tiles outside viewport
+  const canvas = ctx.canvas;
+  const dpr = window.devicePixelRatio || 1;
+  const cw = canvas.width / dpr;
+  const ch = canvas.height / dpr;
+  if (sx + w < 0 || sx - w > cw || sy + h + 50 < 0 || sy - h - 50 > ch) return;
+
+  if (type === 'water') {
+    drawWaterTile(ctx, sx, sy, w, h, tick, x, y);
+    return;
+  }
+
+  const colors = TILE_COLORS[type];
+  const buildingHeight = ['grass', 'road', 'sand', 'forest'].includes(type) ? 0 : level * 8 * cam.zoom;
+
+  // Forest gets small trees
+  const treeHeight = type === 'forest' ? 6 * cam.zoom : 0;
+  const totalHeight = buildingHeight + treeHeight;
+
+  // Draw sides if has height
+  if (totalHeight > 0) {
+    ctx.beginPath();
+    ctx.moveTo(sx - w, sy);
+    ctx.lineTo(sx, sy + h);
+    ctx.lineTo(sx, sy + h - totalHeight);
+    ctx.lineTo(sx - w, sy - totalHeight);
+    ctx.closePath();
+    ctx.fillStyle = colors[2];
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(sx + w, sy);
+    ctx.lineTo(sx, sy + h);
+    ctx.lineTo(sx, sy + h - totalHeight);
+    ctx.lineTo(sx + w, sy - totalHeight);
+    ctx.closePath();
+    ctx.fillStyle = colors[1];
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // Top face
+  ctx.beginPath();
+  ctx.moveTo(sx, sy - h - totalHeight);
+  ctx.lineTo(sx + w, sy - totalHeight);
+  ctx.lineTo(sx, sy + h - totalHeight);
+  ctx.lineTo(sx - w, sy - totalHeight);
+  ctx.closePath();
+  ctx.fillStyle = hover ? lighten(colors[0], 30) : colors[0];
+  ctx.fill();
+  ctx.strokeStyle = hover ? 'rgba(94,234,212,0.6)' : 'rgba(0,0,0,0.1)';
+  ctx.lineWidth = hover ? 2 : 0.3;
+  ctx.stroke();
+
+  // Building windows for higher levels
+  if (level >= 2 && !['grass', 'road', 'sand', 'forest', 'water', 'park'].includes(type)) {
+    const dotSize = 2 * cam.zoom;
+    ctx.fillStyle = 'rgba(255,255,200,0.7)';
+    for (let row = 0; row < level; row++) {
+      for (let col = 0; col < 2; col++) {
+        ctx.fillRect(
+          sx - dotSize * 1.5 + col * dotSize * 2,
+          sy - totalHeight + row * dotSize * 2.5 - dotSize,
+          dotSize,
+          dotSize
+        );
+      }
+    }
+  }
+
+  // Forest: draw little tree shapes
+  if (type === 'forest' && cam.zoom > 0.5) {
+    ctx.fillStyle = '#0d4a0d';
+    const ts = 3 * cam.zoom;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy - totalHeight - ts * 2);
+    ctx.lineTo(sx - ts, sy - totalHeight);
+    ctx.lineTo(sx + ts, sy - totalHeight);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
 export default function IsometricCanvas({ gameState, onTileClick }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 });
+  const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 0.7 });
   const [hoverTile, setHoverTile] = useState<[number, number] | null>(null);
-  const dragRef = useRef<{ dragging: boolean; lastX: number; lastY: number }>({
-    dragging: false, lastX: 0, lastY: 0,
+  const dragRef = useRef<{ dragging: boolean; startX: number; startY: number; lastX: number; lastY: number }>({
+    dragging: false, startX: 0, startY: 0, lastX: 0, lastY: 0,
   });
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
+  const animFrameRef = useRef<number>(0);
+  const tickRef = useRef(0);
 
   // Center camera on mount
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const parent = canvas.parentElement;
+    if (!parent) return;
+    canvas.style.width = parent.clientWidth + 'px';
+    canvas.style.height = parent.clientHeight + 'px';
     setCamera({
-      x: canvas.width / 2,
-      y: canvas.height / 4,
-      zoom: 1,
+      x: parent.clientWidth / 2,
+      y: parent.clientHeight / 5,
+      zoom: 0.55,
     });
   }, []);
 
-  // Render
+  // Render loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
+    let running = true;
+    const render = () => {
+      if (!running) return;
+      tickRef.current++;
 
-    // Clear
-    ctx.fillStyle = 'hsl(220, 20%, 8%)';
-    ctx.fillRect(0, 0, rect.width, rect.height);
-
-    // Draw grid back-to-front
-    const cam = cameraRef.current;
-    for (let y = 0; y < gameState.gridSize; y++) {
-      for (let x = 0; x < gameState.gridSize; x++) {
-        const tile = gameState.grid[y][x];
-        const isHover = hoverTile?.[0] === x && hoverTile?.[1] === y;
-        drawTile(ctx, x, y, cam, tile.type, tile.level, isHover);
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
       }
-    }
-  }, [gameState, camera, hoverTile]);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      ctx.fillStyle = 'hsl(220, 20%, 8%)';
+      ctx.fillRect(0, 0, rect.width, rect.height);
+
+      const cam = cameraRef.current;
+      for (let y = 0; y < gameState.gridSize; y++) {
+        for (let x = 0; x < gameState.gridSize; x++) {
+          const tile = gameState.grid[y][x];
+          const isHover = hoverTile?.[0] === x && hoverTile?.[1] === y;
+          drawTile(ctx, x, y, cam, tile.type, tile.level, isHover, tickRef.current);
+        }
+      }
+
+      animFrameRef.current = requestAnimationFrame(render);
+    };
+
+    animFrameRef.current = requestAnimationFrame(render);
+    return () => {
+      running = false;
+      cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [gameState, hoverTile]);
 
   // Resize
   useEffect(() => {
@@ -161,11 +248,13 @@ export default function IsometricCanvas({ gameState, onTileClick }: Props) {
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 2 || e.button === 1) {
-      dragRef.current = { dragging: true, lastX: e.clientX, lastY: e.clientY };
-    } else {
-      dragRef.current = { dragging: true, lastX: e.clientX, lastY: e.clientY };
-    }
+    dragRef.current = {
+      dragging: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      lastX: e.clientX,
+      lastY: e.clientY,
+    };
   }, []);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -195,13 +284,11 @@ export default function IsometricCanvas({ gameState, onTileClick }: Props) {
   }, [gameState.gridSize]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
-    const wasDragging = dragRef.current.dragging;
-    const dx = Math.abs(e.clientX - dragRef.current.lastX);
-    const dy = Math.abs(e.clientY - dragRef.current.lastY);
+    const totalDx = Math.abs(e.clientX - dragRef.current.startX);
+    const totalDy = Math.abs(e.clientY - dragRef.current.startY);
     dragRef.current.dragging = false;
 
-    // Only place if wasn't a drag
-    if (dx < 5 && dy < 5 && e.button === 0) {
+    if (totalDx < 5 && totalDy < 5 && e.button === 0) {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
@@ -216,10 +303,21 @@ export default function IsometricCanvas({ gameState, onTileClick }: Props) {
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
-    setCamera(c => ({
-      ...c,
-      zoom: Math.max(0.3, Math.min(3, c.zoom - e.deltaY * 0.001)),
-    }));
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    setCamera(c => {
+      const newZoom = Math.max(0.2, Math.min(3, c.zoom * (1 - e.deltaY * 0.001)));
+      const scale = newZoom / c.zoom;
+      return {
+        x: mx - (mx - c.x) * scale,
+        y: my - (my - c.y) * scale,
+        zoom: newZoom,
+      };
+    });
   }, []);
 
   return (
