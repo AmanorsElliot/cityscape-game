@@ -284,7 +284,7 @@ function AgentsLayer({ agents }: { agents: GameState['agents'] }) {
   if (agents.length === 0) return null;
   return (
     <group>
-      {agents.slice(0, 100).map(agent => {
+      {agents.slice(0, 50).map(agent => {
         // Interpolate position between current and target
         const ix = agent.x + (agent.targetX - agent.x) * agent.progress;
         const iy = agent.y + (agent.targetY - agent.y) * agent.progress;
