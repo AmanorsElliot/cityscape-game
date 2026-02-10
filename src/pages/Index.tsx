@@ -1,11 +1,42 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useGameState } from '@/hooks/useGameState';
+import IsometricCanvas from '@/components/game/IsometricCanvas';
+import Toolbar from '@/components/game/Toolbar';
+import ResourceBar from '@/components/game/ResourceBar';
+import SpeedControls from '@/components/game/SpeedControls';
 
 const Index = () => {
+  const { gameState, placeTile, selectTool, setSpeed } = useGameState();
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
+    <div className="fixed inset-0 bg-background overflow-hidden flex flex-col">
+      {/* Top HUD */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3">
+        <div className="glass-panel rounded-2xl px-5 py-2">
+          <h1 className="font-display text-sm font-bold tracking-wider glow-text text-primary">
+            CITYSCAPE
+          </h1>
+        </div>
+        <ResourceBar resources={gameState.resources} />
+        <SpeedControls speed={gameState.speed} onSetSpeed={setSpeed} />
+      </div>
+
+      {/* Canvas */}
+      <div className="flex-1 relative">
+        <IsometricCanvas gameState={gameState} onTileClick={placeTile} />
+      </div>
+
+      {/* Bottom toolbar */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
+        <Toolbar
+          selected={gameState.selectedTool}
+          onSelect={selectTool}
+          money={gameState.resources.money}
+        />
+      </div>
+
+      {/* Help hint */}
+      <div className="absolute bottom-6 right-6 z-10 glass-panel rounded-xl px-3 py-2 text-xs text-muted-foreground">
+        Click to place • Drag to pan • Scroll to zoom
       </div>
     </div>
   );
