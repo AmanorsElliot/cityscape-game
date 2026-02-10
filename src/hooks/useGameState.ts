@@ -328,7 +328,7 @@ export function useGameState() {
       for (const { x, y } of tiles) {
         const currentTile = newGrid[y]?.[x];
         if (!currentTile) continue;
-        if (currentTile.type === 'water') continue;
+        if (currentTile.type === 'water' && tool !== 'bridge') continue;
 
         if (tool === 'bulldoze') {
           if (money < TILE_COSTS.bulldoze) continue;
