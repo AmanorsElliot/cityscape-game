@@ -154,6 +154,8 @@ export interface SmogParticle {
   sourceType: TileType;
 }
 
+export type VehicleModel = 'sedan' | 'suv' | 'truck' | 'van' | 'taxi' | 'bus' | 'fire_truck' | 'police_car' | 'ambulance' | 'tractor' | 'race_car';
+
 export interface Agent {
   id: number;
   x: number;
@@ -162,6 +164,7 @@ export interface Agent {
   targetY: number;
   progress: number;
   type: 'car' | 'bus' | 'pedestrian';
+  vehicleModel: VehicleModel;
   color: string;
   path: { x: number; y: number }[];
   pathIndex: number;
