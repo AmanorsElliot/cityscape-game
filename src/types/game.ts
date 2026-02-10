@@ -21,7 +21,9 @@ export type TileType =
   // Transit
   | 'bus_depot' | 'airport' | 'helipad' | 'train_station'
   // Rail
-  | 'rail';
+  | 'rail'
+  // Bridge
+  | 'bridge';
 
 export const ZONE_TYPES: TileType[] = [
   'residential', 'commercial', 'industrial',
@@ -29,7 +31,7 @@ export const ZONE_TYPES: TileType[] = [
   'residential_hi', 'commercial_hi', 'industrial_hi',
 ];
 
-export const DRAGGABLE_TYPES: (TileType | 'bulldoze')[] = ['road', 'rail', 'bulldoze', ...ZONE_TYPES];
+export const DRAGGABLE_TYPES: (TileType | 'bulldoze')[] = ['road', 'rail', 'bridge', 'bulldoze', ...ZONE_TYPES];
 
 // Types that must be placed adjacent to water
 export const WATER_ADJACENT_TYPES: TileType[] = ['water_pump', 'sewage'];
@@ -65,7 +67,7 @@ export function isAdjacentToRoad(grid: { type: TileType }[][], x: number, y: num
   const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
   for (const [dx, dy] of dirs) {
     const nx = x + dx, ny = y + dy;
-    if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[ny][nx].type === 'road') return true;
+    if (nx >= 0 && nx < size && ny >= 0 && ny < size && (grid[ny][nx].type === 'road' || grid[ny][nx].type === 'bridge')) return true;
   }
   return false;
 }
@@ -254,7 +256,7 @@ export const TILE_COSTS: Record<TileType | 'bulldoze', number> = {
   residential: 100, commercial: 150, industrial: 200,
   residential_md: 200, commercial_md: 300, industrial_md: 400,
   residential_hi: 400, commercial_hi: 600, industrial_hi: 800,
-  road: 50, park: 75, rail: 75,
+  road: 50, park: 75, rail: 75, bridge: 150,
   power_coal: 800, power_oil: 900, power_wind: 400, power_solar: 500, power_nuclear: 3000,
   water_pump: 400, sewage: 350,
   garbage_dump: 300, recycling_plant: 600,
@@ -273,7 +275,7 @@ export const TILE_MAINTENANCE: Partial<Record<TileType, number>> = {
   water_pump: 8, sewage: 6,
   garbage_dump: 5, recycling_plant: 10,
   power_coal: 15, power_oil: 18, power_wind: 4, power_solar: 3, power_nuclear: 30,
-  park: 2, road: 1, rail: 2,
+  park: 2, road: 1, rail: 2, bridge: 3,
   elementary_school: 8, high_school: 14, university: 24, library: 6,
   bus_depot: 8, airport: 40, helipad: 10, train_station: 18,
   residential_md: 2, commercial_md: 3, industrial_md: 4,
@@ -294,6 +296,7 @@ export const TILE_COLORS: Record<TileType, string[]> = {
   road: ['#64748b', '#475569', '#334155'],
   park: ['#34d399', '#10b981', '#059669'],
   rail: ['#78716c', '#57534e', '#44403c'],
+  bridge: ['#8B7355', '#6B5340', '#55402D'],
   water: ['#2563eb', '#1d4ed8', '#1e40af'],
   sand: ['#e8d5a3', '#d4c08a', '#c4a86e'],
   forest: ['#1a5c1a', '#226b22', '#155215'],
@@ -328,7 +331,7 @@ export const TILE_LABELS: Record<TileType | 'bulldoze', string> = {
   residential: 'Residential', commercial: 'Commercial', industrial: 'Industrial',
   residential_md: 'Residential', commercial_md: 'Commercial', industrial_md: 'Industrial',
   residential_hi: 'Residential', commercial_hi: 'Commercial', industrial_hi: 'Industrial',
-  road: 'Road', park: 'Park', rail: 'Rail Track',
+  road: 'Road', park: 'Park', rail: 'Rail Track', bridge: 'Bridge',
   power_coal: 'Coal Plant', power_oil: 'Oil Plant', power_wind: 'Wind Farm',
   power_solar: 'Solar Farm', power_nuclear: 'Nuclear Plant',
   water_pump: 'Water Pump', sewage: 'Sewage Plant',

@@ -6,7 +6,7 @@ const BUS_COLORS = ['#fbbf24', '#22c55e'];
 
 let nextId = 0;
 
-const ROAD_LIKE: TileType[] = ['road', 'bus_depot', 'train_station'];
+const ROAD_LIKE: TileType[] = ['road', 'bridge', 'bus_depot', 'train_station'];
 
 // Emergency service types mapped to their vehicle
 const EMERGENCY_VEHICLE_MAP: Partial<Record<TileType, VehicleModel>> = {

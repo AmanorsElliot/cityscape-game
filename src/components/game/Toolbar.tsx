@@ -2,7 +2,7 @@ import {
   Home, Building2, Factory, Route, TreePine, Zap, Eraser,
   Droplets, Trash2, Flame, Shield, Heart, GraduationCap, BookOpen, Bus, TrainFront,
   Plane, Wind, Sun, Atom, Recycle, Siren, Library, CircleDot, RailSymbol,
-  ChevronDown,
+  ChevronDown, Waves,
 } from 'lucide-react';
 import { TileType, TILE_COSTS, TILE_LABELS, TILE_SIZE } from '@/types/game';
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -55,6 +55,7 @@ const toolGroups: ToolGroup[] = [
     id: 'roads', label: 'Roads', icon: Route,
     items: [
       { type: 'road', icon: Route },
+      { type: 'bridge', icon: Waves, label: 'Bridge' },
       { type: 'park', icon: TreePine },
       { type: 'bulldoze', icon: Eraser },
     ],
