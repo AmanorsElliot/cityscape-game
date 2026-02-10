@@ -2,6 +2,7 @@ import { Canvas } from '@react-three/fiber';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, TileType, TILE_SIZE } from '@/types/game';
 import CityScene from './CityScene';
+import MobileControls from './MobileControls';
 
 interface Props {
   gameState: GameState;
@@ -10,10 +11,22 @@ interface Props {
   onRotate: () => void;
 }
 
+function isTouchDevice() {
+  return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+}
+
 export default function ThreeCanvas({ gameState, onTileClick, onTileDrag, onRotate }: Props) {
   const [cameraAngle, setCameraAngle] = useState(0);
   const [cameraZoom, setCameraZoom] = useState(18);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768 || isTouchDevice());
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -30,12 +43,40 @@ export default function ThreeCanvas({ gameState, onTileClick, onTileDrag, onRota
     setCameraZoom(z => Math.max(6, Math.min(80, z + (e.deltaY > 0 ? -1.5 : 1.5))));
   }, []);
 
+  // Touch gesture handling: pinch-to-zoom
+  const touchState = useRef<{ dist: number; zoom: number } | null>(null);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      touchState.current = { dist: Math.hypot(dx, dy), zoom: cameraZoom };
+    }
+  }, [cameraZoom]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2 && touchState.current) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const newDist = Math.hypot(dx, dy);
+      const scale = newDist / touchState.current.dist;
+      setCameraZoom(Math.max(6, Math.min(80, touchState.current.zoom * scale)));
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    touchState.current = null;
+  }, []);
+
   return (
     <div
       ref={containerRef}
-      className="w-full h-full"
+      className="w-full h-full relative"
       onWheel={handleWheel}
       onContextMenu={e => e.preventDefault()}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
       <Canvas
         orthographic
@@ -52,6 +93,15 @@ export default function ThreeCanvas({ gameState, onTileClick, onTileDrag, onRota
           onTileDrag={onTileDrag}
         />
       </Canvas>
+
+      {/* Mobile on-screen controls */}
+      {isMobile && (
+        <MobileControls
+          onRotateCamera={(dir) => setCameraAngle(a => (a + dir + 4) % 4)}
+          onZoom={(delta) => setCameraZoom(z => Math.max(6, Math.min(80, z + delta)))}
+          onRotateBuilding={onRotate}
+        />
+      )}
     </div>
   );
 }
