@@ -1,7 +1,7 @@
 import {
   Home, Building2, Factory, Route, TreePine, Zap, Eraser,
   Droplets, Trash2, Flame, Shield, Heart, GraduationCap, BookOpen, Bus, TrainFront,
-  Plane, Wind, Sun, Atom, Recycle, Siren, Library, CircleDot,
+  Plane, Wind, Sun, Atom, Recycle, Siren, Library, CircleDot, RailSymbol,
   ChevronDown,
 } from 'lucide-react';
 import { TileType, TILE_COSTS, TILE_LABELS, TILE_SIZE } from '@/types/game';
@@ -104,6 +104,7 @@ const toolGroups: ToolGroup[] = [
     items: [
       { type: 'bus_depot', icon: Bus },
       { type: 'train_station', icon: TrainFront },
+      { type: 'rail', icon: RailSymbol, label: 'Rail Track' },
       { type: 'airport', icon: Plane },
       { type: 'helipad', icon: CircleDot },
     ],
