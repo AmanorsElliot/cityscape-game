@@ -77,7 +77,7 @@ function Terrain({ grid, gridSize }: { grid: GameState['grid']; gridSize: number
         const color = new THREE.Color(TILE_COLORS[tile.type][0]);
         for (let i = 0; i < 4; i++) colors.push(color.r, color.g, color.b);
 
-        indices.push(baseIdx, baseIdx + 1, baseIdx + 2, baseIdx, baseIdx + 2, baseIdx + 3);
+        indices.push(baseIdx, baseIdx + 2, baseIdx + 1, baseIdx, baseIdx + 3, baseIdx + 2);
       }
     }
 
