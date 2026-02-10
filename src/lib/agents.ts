@@ -8,6 +8,8 @@ const AGENT_COLORS = {
 
 let nextId = 0;
 
+const ROAD_LIKE: TileType[] = ['road', 'bus_depot', 'train_station'];
+
 function findRoads(grid: Tile[][], size: number): { x: number; y: number }[] {
   const roads: { x: number; y: number }[] = [];
   for (let y = 0; y < size; y++) {
@@ -34,11 +36,10 @@ function findRandomPath(grid: Tile[][], size: number, start: { x: number; y: num
       if (d.x < 0 || d.x >= size || d.y < 0 || d.y >= size) return false;
       if (visited.has(`${d.x},${d.y}`)) return false;
       const t = grid[d.y][d.x].type;
-      return t === 'road' || t === 'bus_stop' || t === 'train_station';
+      return ROAD_LIKE.includes(t);
     });
 
     if (dirs.length === 0) break;
-    // Prefer continuing in the same direction for smoother paths
     let next: { x: number; y: number };
     if (path.length >= 2 && Math.random() < 0.6) {
       const prevDir = { x: current.x - path[path.length - 2].x, y: current.y - path[path.length - 2].y };
@@ -61,7 +62,6 @@ export function spawnAgents(grid: Tile[][], size: number, existingAgents: Agent[
 
   const targetCount = Math.min(120, Math.floor(population / 30) + Math.floor(roads.length / 6));
 
-  // Remove dead agents
   let agents = existingAgents.filter(a => a.pathIndex < a.path.length - 1);
 
   while (agents.length < targetCount) {

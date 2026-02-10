@@ -1,12 +1,25 @@
 export type ZoneDensity = 'low' | 'medium' | 'high';
 
 export type TileType =
-  | 'grass' | 'residential' | 'commercial' | 'industrial'
+  | 'grass' | 'water' | 'sand' | 'forest'
+  // Zones
+  | 'residential' | 'commercial' | 'industrial'
   | 'residential_md' | 'commercial_md' | 'industrial_md'
   | 'residential_hi' | 'commercial_hi' | 'industrial_hi'
-  | 'road' | 'park' | 'power' | 'water' | 'sand' | 'forest'
-  | 'water_pump' | 'sewage' | 'fire_station' | 'police_station' | 'hospital'
-  | 'school' | 'university' | 'bus_stop' | 'train_station';
+  // Roads & parks
+  | 'road' | 'park'
+  // Power
+  | 'power_coal' | 'power_oil' | 'power_wind' | 'power_solar' | 'power_nuclear'
+  // Water/Waste
+  | 'water_pump' | 'sewage' | 'garbage_dump' | 'recycling_plant'
+  // Services
+  | 'fire_station_small' | 'fire_station_large'
+  | 'police_station' | 'police_hq' | 'prison'
+  | 'clinic' | 'hospital'
+  // Education
+  | 'elementary_school' | 'high_school' | 'university' | 'library'
+  // Transit
+  | 'bus_depot' | 'airport' | 'helipad' | 'train_station';
 
 export const ZONE_TYPES: TileType[] = [
   'residential', 'commercial', 'industrial',
@@ -30,7 +43,6 @@ export function getMaxLevel(type: TileType): number {
   return 3;
 }
 
-// Check if a tile position is adjacent to a road
 export function isAdjacentToRoad(grid: { type: TileType }[][], x: number, y: number, size: number): boolean {
   const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
   for (const [dx, dy] of dirs) {
@@ -39,6 +51,39 @@ export function isAdjacentToRoad(grid: { type: TileType }[][], x: number, y: num
   }
   return false;
 }
+
+// Tile footprint in grid cells (width x height)
+export const TILE_SIZE: Partial<Record<TileType, [number, number]>> = {
+  // Power plants
+  power_coal: [3, 3],
+  power_oil: [3, 3],
+  power_nuclear: [4, 4],
+  power_wind: [2, 2],
+  power_solar: [3, 2],
+  // Water/waste
+  water_pump: [2, 2],
+  sewage: [2, 2],
+  garbage_dump: [3, 3],
+  recycling_plant: [3, 2],
+  // Services
+  fire_station_small: [2, 2],
+  fire_station_large: [3, 3],
+  police_station: [2, 2],
+  police_hq: [3, 3],
+  prison: [4, 3],
+  clinic: [2, 2],
+  hospital: [3, 3],
+  // Education
+  elementary_school: [2, 2],
+  high_school: [3, 2],
+  university: [4, 3],
+  library: [2, 2],
+  // Transit
+  bus_depot: [2, 2],
+  airport: [5, 4],
+  helipad: [2, 2],
+  train_station: [3, 2],
+};
 
 export interface Tile {
   type: TileType;
@@ -79,7 +124,7 @@ export interface Agent {
   y: number;
   targetX: number;
   targetY: number;
-  progress: number; // 0-1 along current segment
+  progress: number;
   type: 'car' | 'bus' | 'pedestrian';
   color: string;
   path: { x: number; y: number }[];
@@ -111,7 +156,7 @@ export interface GameState {
   budgetHistory: BudgetEntry[];
   overlay: OverlayType;
   agents: Agent[];
-  timeOfDay: number; // 0 to DAY_LENGTH
+  timeOfDay: number;
 }
 
 export interface Camera {
@@ -121,15 +166,25 @@ export interface Camera {
 }
 
 export const SERVICE_RADIUS: Partial<Record<TileType, number>> = {
-  fire_station: 10,
-  police_station: 12,
-  hospital: 14,
+  fire_station_small: 8,
+  fire_station_large: 14,
+  police_station: 10,
+  police_hq: 18,
+  prison: 6,
+  clinic: 8,
+  hospital: 16,
   water_pump: 15,
   sewage: 12,
-  school: 10,
-  university: 16,
-  bus_stop: 8,
-  train_station: 18,
+  garbage_dump: 10,
+  recycling_plant: 14,
+  elementary_school: 8,
+  high_school: 12,
+  university: 18,
+  library: 10,
+  bus_depot: 12,
+  airport: 30,
+  helipad: 10,
+  train_station: 20,
 };
 
 export const SERVICE_CAPACITY: Partial<Record<TileType, number>> = {
@@ -137,54 +192,43 @@ export const SERVICE_CAPACITY: Partial<Record<TileType, number>> = {
   sewage: 120,
 };
 
+export const POWER_OUTPUT: Partial<Record<TileType, number>> = {
+  power_coal: 200,
+  power_oil: 180,
+  power_wind: 50,
+  power_solar: 40,
+  power_nuclear: 500,
+};
+
 export const TILE_COSTS: Record<TileType | 'bulldoze', number> = {
-  grass: 0,
-  residential: 100,
-  commercial: 150,
-  industrial: 200,
-  residential_md: 200,
-  commercial_md: 300,
-  industrial_md: 400,
-  residential_hi: 400,
-  commercial_hi: 600,
-  industrial_hi: 800,
-  road: 50,
-  park: 75,
-  power: 500,
-  water: 0,
-  sand: 0,
-  forest: 0,
-  water_pump: 400,
-  sewage: 350,
-  fire_station: 600,
-  police_station: 650,
-  hospital: 800,
-  school: 450,
-  university: 900,
-  bus_stop: 200,
-  train_station: 750,
+  grass: 0, water: 0, sand: 0, forest: 0,
+  residential: 100, commercial: 150, industrial: 200,
+  residential_md: 200, commercial_md: 300, industrial_md: 400,
+  residential_hi: 400, commercial_hi: 600, industrial_hi: 800,
+  road: 50, park: 75,
+  power_coal: 800, power_oil: 900, power_wind: 400, power_solar: 500, power_nuclear: 3000,
+  water_pump: 400, sewage: 350,
+  garbage_dump: 300, recycling_plant: 600,
+  fire_station_small: 400, fire_station_large: 900,
+  police_station: 500, police_hq: 1200, prison: 800,
+  clinic: 350, hospital: 1200,
+  elementary_school: 350, high_school: 600, university: 1200, library: 300,
+  bus_depot: 400, airport: 5000, helipad: 800, train_station: 1500,
   bulldoze: 10,
 };
 
 export const TILE_MAINTENANCE: Partial<Record<TileType, number>> = {
-  fire_station: 12,
-  police_station: 14,
-  hospital: 18,
-  water_pump: 8,
-  sewage: 6,
-  power: 10,
-  park: 2,
-  road: 1,
-  school: 10,
-  university: 20,
-  bus_stop: 4,
-  train_station: 15,
-  residential_md: 2,
-  commercial_md: 3,
-  industrial_md: 4,
-  residential_hi: 4,
-  commercial_hi: 6,
-  industrial_hi: 8,
+  fire_station_small: 8, fire_station_large: 18,
+  police_station: 10, police_hq: 25, prison: 20,
+  clinic: 8, hospital: 22,
+  water_pump: 8, sewage: 6,
+  garbage_dump: 5, recycling_plant: 10,
+  power_coal: 15, power_oil: 18, power_wind: 4, power_solar: 3, power_nuclear: 30,
+  park: 2, road: 1,
+  elementary_school: 8, high_school: 14, university: 24, library: 6,
+  bus_depot: 8, airport: 40, helipad: 10, train_station: 18,
+  residential_md: 2, commercial_md: 3, industrial_md: 4,
+  residential_hi: 4, commercial_hi: 6, industrial_hi: 8,
 };
 
 export const TILE_COLORS: Record<TileType, string[]> = {
@@ -200,46 +244,58 @@ export const TILE_COLORS: Record<TileType, string[]> = {
   industrial_hi: ['#f87171', '#ef4444', '#dc2626'],
   road: ['#64748b', '#475569', '#334155'],
   park: ['#34d399', '#10b981', '#059669'],
-  power: ['#facc15', '#eab308', '#ca8a04'],
   water: ['#2563eb', '#1d4ed8', '#1e40af'],
   sand: ['#e8d5a3', '#d4c08a', '#c4a86e'],
   forest: ['#1a5c1a', '#226b22', '#155215'],
+  // Power
+  power_coal: ['#6b7280', '#4b5563', '#374151'],
+  power_oil: ['#78716c', '#57534e', '#44403c'],
+  power_wind: ['#e0f2fe', '#bae6fd', '#7dd3fc'],
+  power_solar: ['#fef08a', '#fde047', '#facc15'],
+  power_nuclear: ['#d9f99d', '#bef264', '#a3e635'],
+  // Water/Waste
   water_pump: ['#38bdf8', '#0ea5e9', '#0284c7'],
   sewage: ['#a78bfa', '#8b5cf6', '#7c3aed'],
-  fire_station: ['#f87171', '#ef4444', '#dc2626'],
+  garbage_dump: ['#78716c', '#57534e', '#44403c'],
+  recycling_plant: ['#6ee7b7', '#34d399', '#10b981'],
+  // Services
+  fire_station_small: ['#fca5a5', '#f87171', '#ef4444'],
+  fire_station_large: ['#f87171', '#ef4444', '#dc2626'],
   police_station: ['#60a5fa', '#3b82f6', '#1d4ed8'],
+  police_hq: ['#3b82f6', '#2563eb', '#1d4ed8'],
+  prison: ['#9ca3af', '#6b7280', '#4b5563'],
+  clinic: ['#fca5a5', '#fb923c', '#f97316'],
   hospital: ['#fb923c', '#f97316', '#ea580c'],
-  school: ['#a3e635', '#84cc16', '#65a30d'],
+  // Education
+  elementary_school: ['#bef264', '#a3e635', '#84cc16'],
+  high_school: ['#a3e635', '#84cc16', '#65a30d'],
   university: ['#c084fc', '#a855f7', '#9333ea'],
-  bus_stop: ['#fde68a', '#fcd34d', '#fbbf24'],
+  library: ['#fde68a', '#fcd34d', '#fbbf24'],
+  // Transit
+  bus_depot: ['#fde68a', '#fcd34d', '#fbbf24'],
+  airport: ['#e2e8f0', '#cbd5e1', '#94a3b8'],
+  helipad: ['#d1d5db', '#9ca3af', '#6b7280'],
   train_station: ['#94a3b8', '#64748b', '#475569'],
 };
 
 export const TILE_LABELS: Record<TileType | 'bulldoze', string> = {
-  grass: 'Grass',
-  residential: 'Low Res',
-  commercial: 'Low Com',
-  industrial: 'Low Ind',
-  residential_md: 'Med Res',
-  commercial_md: 'Med Com',
-  industrial_md: 'Med Ind',
-  residential_hi: 'Hi Res',
-  commercial_hi: 'Hi Com',
-  industrial_hi: 'Hi Ind',
-  road: 'Road',
-  park: 'Park',
-  power: 'Power Plant',
-  water: 'Water',
-  sand: 'Beach',
-  forest: 'Forest',
-  water_pump: 'Water Pump',
-  sewage: 'Sewage Plant',
-  fire_station: 'Fire Station',
-  police_station: 'Police',
-  hospital: 'Hospital',
-  school: 'School',
-  university: 'University',
-  bus_stop: 'Bus Stop',
-  train_station: 'Train Stn',
+  grass: 'Grass', water: 'Water', sand: 'Beach', forest: 'Forest',
+  residential: 'Residential', commercial: 'Commercial', industrial: 'Industrial',
+  residential_md: 'Residential', commercial_md: 'Commercial', industrial_md: 'Industrial',
+  residential_hi: 'Residential', commercial_hi: 'Commercial', industrial_hi: 'Industrial',
+  road: 'Road', park: 'Park',
+  power_coal: 'Coal Plant', power_oil: 'Oil Plant', power_wind: 'Wind Farm',
+  power_solar: 'Solar Farm', power_nuclear: 'Nuclear Plant',
+  water_pump: 'Water Pump', sewage: 'Sewage Plant',
+  garbage_dump: 'Garbage Dump', recycling_plant: 'Recycling Plant',
+  fire_station_small: 'Small Fire Stn', fire_station_large: 'Large Fire Stn',
+  police_station: 'Police Station', police_hq: 'Police HQ', prison: 'Prison',
+  clinic: 'Clinic', hospital: 'Hospital',
+  elementary_school: 'Elementary', high_school: 'High School',
+  university: 'University', library: 'Library',
+  bus_depot: 'Bus Depot', airport: 'Airport', helipad: 'Helipad', train_station: 'Train Station',
   bulldoze: 'Bulldoze',
 };
+
+// Category for toolbar grouping
+export type ToolCategory = 'zones_res' | 'zones_com' | 'zones_ind' | 'roads' | 'power' | 'water' | 'services' | 'education' | 'transit';

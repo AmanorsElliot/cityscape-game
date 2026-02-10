@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   GameState, Tile, TileType, Resources, RCIDemand, BudgetEntry, Agent,
-  TILE_COSTS, TILE_MAINTENANCE, SERVICE_CAPACITY, OverlayType, DRAGGABLE_TYPES,
+  TILE_COSTS, TILE_MAINTENANCE, SERVICE_CAPACITY, POWER_OUTPUT, OverlayType, DRAGGABLE_TYPES,
   isRCIType, getMaxLevel, isAdjacentToRoad, ZONE_TYPES,
 } from '@/types/game';
 import { generateTerrain } from '@/lib/terrainGen';
@@ -10,7 +10,7 @@ import { spawnAgents, updateAgents } from '@/lib/agents';
 
 const GRID_SIZE = 64;
 const MAX_BUDGET_HISTORY = 100;
-const DAY_LENGTH = 240; // ticks per full day cycle
+const DAY_LENGTH = 240;
 
 const initialResources: Resources = {
   money: 15000,
@@ -39,6 +39,16 @@ function popMultiplier(type: TileType): number {
   return 1;
 }
 
+const POWER_TYPES: TileType[] = ['power_coal', 'power_oil', 'power_wind', 'power_solar', 'power_nuclear'];
+const FIRE_TYPES: TileType[] = ['fire_station_small', 'fire_station_large'];
+const POLICE_TYPES: TileType[] = ['police_station', 'police_hq', 'prison'];
+const HEALTH_TYPES: TileType[] = ['clinic', 'hospital'];
+const EDU_TYPES: TileType[] = ['elementary_school', 'high_school', 'university', 'library'];
+const TRANSPORT_TYPES: TileType[] = ['bus_depot', 'airport', 'helipad', 'train_station'];
+const WASTE_TYPES: TileType[] = ['garbage_dump', 'recycling_plant'];
+
+function isPowerType(t: TileType) { return POWER_TYPES.includes(t); }
+
 function calculateRCIDemand(grid: Tile[][], coverage: ReturnType<typeof calculateServiceCoverage>): RCIDemand {
   let R = 0, C = 0, I = 0;
   let totalRLevel = 0, totalCLevel = 0, totalILevel = 0;
@@ -52,17 +62,13 @@ function calculateRCIDemand(grid: Tile[][], coverage: ReturnType<typeof calculat
       if (rci === 'R') { R += mult; totalRLevel += tile.level * mult; }
       else if (rci === 'C') { C += mult; totalCLevel += tile.level * mult; }
       else if (rci === 'I') { I += mult; totalILevel += tile.level * mult; }
-      else {
-        switch (tile.type) {
-          case 'road': roadCount++; break;
-          case 'park': parkCount++; break;
-          case 'power': powerCount++; break;
-          case 'water_pump': waterPumpCount++; break;
-          case 'school': case 'university': eduCount++; break;
-          case 'bus_stop': case 'train_station': transportCount++; break;
-          case 'fire_station': case 'police_station': case 'hospital': case 'sewage': serviceCount++; break;
-        }
-      }
+      else if (tile.type === 'road') roadCount++;
+      else if (tile.type === 'park') parkCount++;
+      else if (isPowerType(tile.type)) powerCount++;
+      else if (tile.type === 'water_pump') waterPumpCount++;
+      else if (EDU_TYPES.includes(tile.type)) eduCount++;
+      else if (TRANSPORT_TYPES.includes(tile.type)) transportCount++;
+      else if (FIRE_TYPES.includes(tile.type) || POLICE_TYPES.includes(tile.type) || HEALTH_TYPES.includes(tile.type) || tile.type === 'sewage' || WASTE_TYPES.includes(tile.type)) serviceCount++;
     }
   }
 
@@ -158,7 +164,7 @@ export function useGameState() {
       newGrid[y][x] = { ...newGrid[y][x], type: tool, level: 1 };
 
       const newResources = { ...prev.resources, money: prev.resources.money - cost };
-      if (tool === 'power') newResources.maxPower += 100;
+      if (isPowerType(tool)) newResources.maxPower += (POWER_OUTPUT[tool] || 100);
       if (tool === 'water_pump') newResources.maxWaterSupply += (SERVICE_CAPACITY.water_pump || 150);
       if (tool === 'sewage') newResources.maxSewageCapacity += (SERVICE_CAPACITY.sewage || 120);
 
@@ -191,7 +197,6 @@ export function useGameState() {
           if (!['grass', 'sand', 'forest'].includes(currentTile.type)) continue;
           const cost = TILE_COSTS[tool];
           if (money < cost) continue;
-          // For zones, check road adjacency (but for roads placed in the same drag, check the updated grid)
           if (ZONE_TYPES.includes(tool) && !isAdjacentToRoad(newGrid, x, y, GRID_SIZE)) continue;
           newGrid[y][x] = { ...newGrid[y][x], type: tool, level: 1 };
           money -= cost;
@@ -219,11 +224,11 @@ export function useGameState() {
         const demand = prev.resources.demand;
 
         let rCount = 0, cCount = 0, iCount = 0;
-        let parkCount = 0, roadCount = 0, powerPlantCount = 0;
+        let parkCount = 0, roadCount = 0;
         let totalRLevel = 0, totalCLevel = 0, totalILevel = 0;
         let waterPumpCount = 0, sewageCount = 0;
-        let fireCount = 0, policeCount = 0, hospitalCount = 0;
-        let schoolCount = 0, uniCount = 0, busCount = 0, trainCount = 0;
+        let totalPowerOutput = 0;
+        const serviceCountMap: Partial<Record<TileType, number>> = {};
 
         const newGrid = prev.grid.map(row =>
           row.map(tile => {
@@ -233,21 +238,13 @@ export function useGameState() {
             if (rci === 'R') { rCount += mult; totalRLevel += t.level * mult; }
             else if (rci === 'C') { cCount += mult; totalCLevel += t.level * mult; }
             else if (rci === 'I') { iCount += mult; totalILevel += t.level * mult; }
+            else if (t.type === 'park') parkCount++;
+            else if (t.type === 'road') roadCount++;
+            else if (isPowerType(t.type)) totalPowerOutput += (POWER_OUTPUT[t.type] || 100);
+            else if (t.type === 'water_pump') waterPumpCount++;
+            else if (t.type === 'sewage') sewageCount++;
             else {
-              switch (t.type) {
-                case 'park': parkCount++; break;
-                case 'road': roadCount++; break;
-                case 'power': powerPlantCount++; break;
-                case 'water_pump': waterPumpCount++; break;
-                case 'sewage': sewageCount++; break;
-                case 'fire_station': fireCount++; break;
-                case 'police_station': policeCount++; break;
-                case 'hospital': hospitalCount++; break;
-                case 'school': schoolCount++; break;
-                case 'university': uniCount++; break;
-                case 'bus_stop': busCount++; break;
-                case 'train_station': trainCount++; break;
-              }
+              serviceCountMap[t.type] = (serviceCountMap[t.type] || 0) + 1;
             }
 
             if (newTick % 8 === 0 && t.level > 0) {
@@ -283,7 +280,7 @@ export function useGameState() {
         );
 
         population = rCount * 50 + totalRLevel * 30;
-        maxPower = powerPlantCount * 100;
+        maxPower = totalPowerOutput;
         power = rCount * 10 + cCount * 15 + iCount * 25;
         maxWaterSupply = waterPumpCount * (SERVICE_CAPACITY.water_pump || 150);
         waterSupply = rCount * 8 + cCount * 12 + iCount * 15;
@@ -296,27 +293,22 @@ export function useGameState() {
 
         let totalExpenses = rCount * 3;
         for (const [type, cost] of Object.entries(TILE_MAINTENANCE)) {
-          let count = 0;
-          switch (type) {
-            case 'fire_station': count = fireCount; break;
-            case 'police_station': count = policeCount; break;
-            case 'hospital': count = hospitalCount; break;
-            case 'water_pump': count = waterPumpCount; break;
-            case 'sewage': count = sewageCount; break;
-            case 'power': count = powerPlantCount; break;
-            case 'park': count = parkCount; break;
-            case 'road': count = roadCount; break;
-            case 'school': count = schoolCount; break;
-            case 'university': count = uniCount; break;
-            case 'bus_stop': count = busCount; break;
-            case 'train_station': count = trainCount; break;
-            // density zones counted via rCount/cCount/iCount already
-          }
-          totalExpenses += count * (cost as number);
+          const count = serviceCountMap[type as TileType] || 0;
+          // Also count specific tracked types
+          let extra = 0;
+          if (type === 'road') extra = roadCount;
+          else if (type === 'park') extra = parkCount;
+          totalExpenses += (count + extra) * (cost as number);
         }
 
         const netIncome = totalIncome - totalExpenses;
         money = Math.max(0, money + netIncome);
+
+        const fireCount = (serviceCountMap['fire_station_small'] || 0) + (serviceCountMap['fire_station_large'] || 0);
+        const policeCount = (serviceCountMap['police_station'] || 0) + (serviceCountMap['police_hq'] || 0);
+        const healthCount = (serviceCountMap['clinic'] || 0) + (serviceCountMap['hospital'] || 0);
+        const eduCount = (serviceCountMap['elementary_school'] || 0) + (serviceCountMap['high_school'] || 0) + (serviceCountMap['university'] || 0) + (serviceCountMap['library'] || 0);
+        const transportCount = (serviceCountMap['bus_depot'] || 0) + (serviceCountMap['airport'] || 0) + (serviceCountMap['helipad'] || 0) + (serviceCountMap['train_station'] || 0);
 
         const parkBonus = Math.min(20, parkCount * 3);
         const roadBonus = Math.min(8, roadCount * 0.5);
@@ -327,9 +319,9 @@ export function useGameState() {
         const jobSatisfaction = cCount + iCount >= rCount * 0.4 ? 8 : -8;
         const fireBonus = Math.min(10, fireCount * 5);
         const policeBonus = Math.min(10, policeCount * 5);
-        const healthBonus = Math.min(10, hospitalCount * 5);
-        const eduBonus = Math.min(12, (schoolCount * 4 + uniCount * 6));
-        const transportBonus = Math.min(8, (busCount * 3 + trainCount * 5));
+        const healthBonus = Math.min(10, healthCount * 5);
+        const eduBonus = Math.min(12, eduCount * 4);
+        const transportBonus = Math.min(8, transportCount * 3);
 
         happiness = Math.max(0, Math.min(100,
           42 + parkBonus + roadBonus + fireBonus + policeBonus + healthBonus + jobSatisfaction + eduBonus + transportBonus
@@ -342,7 +334,6 @@ export function useGameState() {
         const budgetEntry: BudgetEntry = { tick: newTick, income: totalIncome, expenses: totalExpenses, balance: Math.round(money) };
         const budgetHistory = [...prev.budgetHistory, budgetEntry].slice(-MAX_BUDGET_HISTORY);
 
-        // Update agents
         const speedMultiplier = [0, 1, 2, 3][prev.speed] || 1;
         let agents = updateAgents(prev.agents, speedMultiplier);
         if (newTick % 3 === 0) {
