@@ -7,6 +7,7 @@ import {
 } from '@/types/game';
 import { BuildingModel, TERRAIN_SET } from './BuildingModels';
 import { getFootprint } from '@/hooks/useGameState';
+import { getRoadVariant, RoadVariant, TrafficLight } from '@/lib/trafficLights';
 
 const AZIMUTH_ANGLES = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
 const DAY_LENGTH = 240;
@@ -229,17 +230,83 @@ function SmogCloud({ particles }: { particles: SmogParticle[] }) {
   );
 }
 
-// --- Agents ---
+// --- Traffic Lights ---
+function TrafficLightsLayer({ lights }: { lights: TrafficLight[] }) {
+  if (lights.length === 0) return null;
+  return (
+    <group>
+      {lights.map((light, i) => {
+        // Phase 0 = green for greenAxis, 1 = yellow, 2 = red for greenAxis, 3 = yellow
+        const nsColor = light.phase === 0 && light.greenAxis === 'ns' ? '#22c55e'
+          : light.phase === 2 && light.greenAxis === 'ns' ? '#ef4444'
+          : light.phase === 0 && light.greenAxis === 'ew' ? '#ef4444'
+          : light.phase === 2 && light.greenAxis === 'ew' ? '#22c55e'
+          : '#f59e0b'; // yellow
+
+        const ewColor = light.phase === 0 && light.greenAxis === 'ew' ? '#22c55e'
+          : light.phase === 2 && light.greenAxis === 'ew' ? '#ef4444'
+          : light.phase === 0 && light.greenAxis === 'ns' ? '#ef4444'
+          : light.phase === 2 && light.greenAxis === 'ns' ? '#22c55e'
+          : '#f59e0b';
+
+        return (
+          <group key={i} position={[light.x + 0.5, 0, light.y + 0.5]}>
+            {/* Pole */}
+            <mesh position={[0.35, 0.2, 0.35]}>
+              <cylinderGeometry args={[0.015, 0.015, 0.4, 6]} />
+              <meshLambertMaterial color="#424242" />
+            </mesh>
+            {/* NS light */}
+            <mesh position={[0.35, 0.42, 0.35]}>
+              <sphereGeometry args={[0.035, 8, 8]} />
+              <meshBasicMaterial color={nsColor} />
+            </mesh>
+            {/* EW light on opposite corner */}
+            <mesh position={[-0.35, 0.2, -0.35]}>
+              <cylinderGeometry args={[0.015, 0.015, 0.4, 6]} />
+              <meshLambertMaterial color="#424242" />
+            </mesh>
+            <mesh position={[-0.35, 0.42, -0.35]}>
+              <sphereGeometry args={[0.035, 8, 8]} />
+              <meshBasicMaterial color={ewColor} />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+// --- Agents with interpolation ---
 function AgentsLayer({ agents }: { agents: GameState['agents'] }) {
   if (agents.length === 0) return null;
   return (
     <group>
-      {agents.slice(0, 100).map(agent => (
-        <mesh key={agent.id} position={[agent.x + 0.5, 0.08, agent.y + 0.5]}>
-          <boxGeometry args={[0.12, 0.08, 0.2]} />
-          <meshBasicMaterial color={agent.color} />
-        </mesh>
-      ))}
+      {agents.slice(0, 100).map(agent => {
+        // Interpolate position between current and target
+        const ix = agent.x + (agent.targetX - agent.x) * agent.progress;
+        const iy = agent.y + (agent.targetY - agent.y) * agent.progress;
+        const agentH = agent.type === 'pedestrian' ? 0.06 : 0.08;
+        const agentW = agent.type === 'pedestrian' ? 0.06 : 0.12;
+        const agentD = agent.type === 'bus' ? 0.3 : agent.type === 'pedestrian' ? 0.06 : 0.2;
+
+        // Calculate rotation based on direction
+        const dx = agent.targetX - agent.path[agent.pathIndex].x;
+        const dy = agent.targetY - agent.path[agent.pathIndex].y;
+        const rotation = Math.atan2(dx, dy);
+
+        // Offset to the right side of the road based on direction
+        const laneOffset = 0.15;
+        const ox = dy * laneOffset; // perpendicular offset
+        const oz = -dx * laneOffset;
+
+        return (
+          <mesh key={agent.id} position={[ix + 0.5 + ox, agentH / 2 + 0.02, iy + 0.5 + oz]} rotation={[0, rotation, 0]}>
+            <boxGeometry args={[agentW, agentH, agentD]} />
+            <meshLambertMaterial color={agent.color} />
+          </mesh>
+        );
+      })}
     </group>
   );
 }
@@ -364,17 +431,20 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
 
   // Collect buildings (only anchor tiles, not secondary tiles)
   const buildings = useMemo(() => {
-    const result: { x: number; z: number; type: TileType; level: number; key: string; fw: number; fh: number }[] = [];
+    const result: { x: number; z: number; type: TileType; level: number; key: string; fw: number; fh: number; roadVariant?: RoadVariant }[] = [];
     for (let z = 0; z < gridSize; z++) {
       for (let x = 0; x < gridSize; x++) {
         const tile = gameState.grid[z][x];
         if (!TERRAIN_SET.has(tile.type) && tile.anchorX === undefined) {
+          // For roads, compute connectivity variant
+          let rv: RoadVariant | undefined;
+          if (tile.type === 'road') {
+            rv = getRoadVariant(gameState.grid, x, z, gridSize);
+          }
+
           const size = TILE_SIZE[tile.type] || [1, 1];
-          // Determine actual footprint by checking if it's rotated
           let fw = size[0], fh = size[1];
-          // Check actual extent on grid
           if (fw !== fh) {
-            // See if it was placed rotated by checking grid extent
             let maxDx = 0, maxDy = 0;
             for (let dy = 0; dy < Math.max(fw, fh); dy++) {
               for (let dx = 0; dx < Math.max(fw, fh); dx++) {
@@ -391,7 +461,7 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
             fw = maxDx + 1;
             fh = maxDy + 1;
           }
-          result.push({ x, z, type: tile.type, level: tile.level, key: `${x}-${z}`, fw, fh });
+          result.push({ x, z, type: tile.type, level: tile.level, key: `${x}-${z}`, fw, fh, roadVariant: rv });
         }
       }
     }
@@ -422,7 +492,7 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
       {/* Buildings - position at center of footprint */}
       {buildings.map(b => (
         <group key={b.key} position={[b.x + b.fw / 2, 0, b.z + b.fh / 2]}>
-          <BuildingModel type={b.type} level={b.level} footprintW={b.fw} footprintH={b.fh} />
+          <BuildingModel type={b.type} level={b.level} footprintW={b.fw} footprintH={b.fh} roadVariant={b.roadVariant} />
         </group>
       ))}
 
@@ -460,6 +530,7 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
       <SmogCloud particles={gameState.smogParticles} />
       <OverlayLayer gameState={gameState} />
       <AgentsLayer agents={gameState.agents} />
+      <TrafficLightsLayer lights={gameState.trafficLights} />
 
       {/* Ground fog for atmosphere */}
       <fog attach="fog" args={['#0a0a14', 60, 180]} />

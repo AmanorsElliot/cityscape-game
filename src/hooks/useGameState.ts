@@ -9,6 +9,7 @@ import { generateTerrain } from '@/lib/terrainGen';
 import { calculateServiceCoverage } from '@/lib/serviceCoverage';
 import { spawnAgents, updateAgents } from '@/lib/agents';
 import { calculatePollutionMap, updateSmogParticles, calculateSickness, updateWind } from '@/lib/pollution';
+import { findTrafficLights, updateTrafficLights } from '@/lib/trafficLights';
 
 const GRID_SIZE = 64;
 const MAX_BUDGET_HISTORY = 100;
@@ -123,7 +124,7 @@ function createInitialState(): GameState {
   return {
     grid, resources: initialResources, selectedTool: 'residential',
     tick: 0, speed: 1, gridSize: GRID_SIZE, coverage, budgetHistory: [], overlay: 'none', agents: [],
-    timeOfDay: 0, wind: initialWind, smogParticles: [], pollutionMap, rotation: 0,
+    timeOfDay: 0, wind: initialWind, smogParticles: [], pollutionMap, rotation: 0, trafficLights: [],
   };
 }
 
@@ -258,8 +259,9 @@ export function useGameState() {
         const newGrid = prev.grid.map(row => row.map(t => ({ ...t })));
         if (!bulldozeBuilding(newGrid, x, y)) return prev;
         const coverage = calculateServiceCoverage(newGrid, GRID_SIZE);
+        const trafficLights = findTrafficLights(newGrid, GRID_SIZE);
         return {
-          ...prev, grid: newGrid, coverage,
+          ...prev, grid: newGrid, coverage, trafficLights,
           resources: { ...prev.resources, money: prev.resources.money - TILE_COSTS.bulldoze, demand: calculateRCIDemand(newGrid, coverage) },
         };
       }
@@ -293,7 +295,8 @@ export function useGameState() {
       const coverage = calculateServiceCoverage(newGrid, GRID_SIZE);
       newResources.demand = calculateRCIDemand(newGrid, coverage);
 
-      return { ...prev, grid: newGrid, resources: newResources, coverage };
+      const trafficLights = tool === 'road' ? findTrafficLights(newGrid, GRID_SIZE) : prev.trafficLights;
+      return { ...prev, grid: newGrid, resources: newResources, coverage, trafficLights };
     });
   }, []);
 
@@ -339,7 +342,8 @@ export function useGameState() {
 
       const coverage = calculateServiceCoverage(newGrid, GRID_SIZE);
       const newResources = { ...prev.resources, money, demand: calculateRCIDemand(newGrid, coverage) };
-      return { ...prev, grid: newGrid, resources: newResources, coverage };
+      const trafficLights = (tool === 'road' || tool === 'bulldoze') ? findTrafficLights(newGrid, GRID_SIZE) : prev.trafficLights;
+      return { ...prev, grid: newGrid, resources: newResources, coverage, trafficLights };
     });
   }, []);
 
@@ -476,14 +480,24 @@ export function useGameState() {
         const budgetEntry: BudgetEntry = { tick: newTick, income: totalIncome, expenses: totalExpenses, balance: Math.round(money) };
         const budgetHistory = [...prev.budgetHistory, budgetEntry].slice(-MAX_BUDGET_HISTORY);
 
-        let agents = updateAgents(prev.agents, speedMultiplier);
+        // Update traffic lights
+        let trafficLights = updateTrafficLights(prev.trafficLights);
+        // Rebuild traffic light positions when grid changes
+        if (newTick % 10 === 0) {
+          const newLights = findTrafficLights(newGrid, GRID_SIZE);
+          // Preserve existing light states where possible
+          const existingMap = new Map(trafficLights.map(l => [`${l.x},${l.y}`, l]));
+          trafficLights = newLights.map(nl => existingMap.get(`${nl.x},${nl.y}`) || nl);
+        }
+
+        let agents = updateAgents(prev.agents, speedMultiplier, trafficLights);
         if (newTick % 3 === 0) {
           agents = spawnAgents(newGrid, GRID_SIZE, agents, population);
         }
 
         return {
           ...prev, grid: newGrid, tick: newTick, coverage, budgetHistory, agents, timeOfDay,
-          wind: newWind, smogParticles, pollutionMap,
+          wind: newWind, smogParticles, pollutionMap, trafficLights,
           resources: {
             money: Math.round(money), population, happiness: Math.round(happiness),
             power, maxPower, waterSupply, maxWaterSupply, sewageCapacity, maxSewageCapacity,

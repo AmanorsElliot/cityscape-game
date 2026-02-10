@@ -1,4 +1,5 @@
 import { Agent, Tile, TileType } from '@/types/game';
+import { TrafficLight, shouldStopAtLight } from './trafficLights';
 
 const AGENT_COLORS = {
   car: ['#ef4444', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#f97316', '#06b6d4', '#ec4899', '#ffffff', '#1e293b'],
@@ -87,15 +88,47 @@ export function spawnAgents(grid: Tile[][], size: number, existingAgents: Agent[
       path,
       pathIndex: 0,
       speed: type === 'car' ? 0.025 + Math.random() * 0.015 : type === 'bus' ? 0.018 : 0.012,
+      stopped: false,
     });
   }
 
   return agents;
 }
 
-export function updateAgents(agents: Agent[], speedMultiplier: number): Agent[] {
+/** Build a quick lookup map for traffic lights */
+function buildLightMap(lights: TrafficLight[]): Map<string, TrafficLight> {
+  const map = new Map<string, TrafficLight>();
+  for (const l of lights) {
+    map.set(`${l.x},${l.y}`, l);
+  }
+  return map;
+}
+
+export function updateAgents(agents: Agent[], speedMultiplier: number, trafficLights: TrafficLight[]): Agent[] {
+  const lightMap = buildLightMap(trafficLights);
+
   return agents.map(agent => {
     const a = { ...agent };
+
+    // Check if agent is approaching a traffic light at their target tile
+    const targetKey = `${a.targetX},${a.targetY}`;
+    const light = lightMap.get(targetKey);
+
+    if (light && a.type !== 'pedestrian') {
+      // Calculate movement direction
+      const dx = a.targetX - a.path[a.pathIndex].x;
+      const dy = a.targetY - a.path[a.pathIndex].y;
+
+      if (shouldStopAtLight(light, dx, dy)) {
+        // Stop before entering the intersection (when progress > 0.6)
+        if (a.progress > 0.6) {
+          a.stopped = true;
+          return a;
+        }
+      }
+    }
+
+    a.stopped = false;
     a.progress += a.speed * speedMultiplier;
 
     if (a.progress >= 1) {
