@@ -76,39 +76,27 @@ export default function MultiplayerPanel({ cityId, onClose }: Props) {
     if (!cityId || !inviteEmail.trim()) return;
     setStatus('');
 
-    // Find user by email through profiles
-    const { data: allProfiles } = await supabase.from('profiles').select('user_id, display_name');
-    // Find their city
-    const { data: allCities } = await supabase.from('cities').select('id, user_id');
+    // Search for player via server-side edge function
+    const { data: result, error: searchError } = await supabase.functions.invoke('search-players', {
+      body: { searchTerm: inviteEmail.trim() },
+    });
 
-    if (!allProfiles || !allCities) {
+    if (searchError) {
       setStatus('Could not search for players');
       return;
     }
 
-    // We need to find the user - search by checking auth (we can't query auth.users directly)
-    // Instead, look for a city that isn't ours
-    const otherCities = allCities.filter(c => c.user_id !== user?.id);
-    if (otherCities.length === 0) {
-      setStatus('No other players found');
-      return;
-    }
-
-    // For simplicity, find by display name
-    const targetProfile = allProfiles.find(p =>
-      p.display_name.toLowerCase() === inviteEmail.trim().toLowerCase()
-    );
-
-    if (!targetProfile) {
+    if (!result?.profile) {
       setStatus('Player not found. Enter their display name.');
       return;
     }
 
-    const targetCity = allCities.find(c => c.user_id === targetProfile.user_id);
-    if (!targetCity) {
+    if (!result?.city) {
       setStatus('Player has no city yet');
       return;
     }
+
+    const targetCity = result.city;
 
     const { error } = await supabase.from('city_links').insert({
       city_a: cityId,
