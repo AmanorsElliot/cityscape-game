@@ -20,7 +20,7 @@ function applyRadialCoverage(map: number[][], cx: number, cy: number, radius: nu
 }
 
 /** BFS flood-fill along road network from a source tile, applying coverage to tiles adjacent to roads */
-const ROAD_NETWORK = new Set<TileType>(['road', 'bus_depot', 'train_station']);
+const ROAD_NETWORK = new Set<TileType>(['road', 'bridge', 'bus_depot', 'train_station']);
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]];
 
 function applyRoadNetworkCoverage(

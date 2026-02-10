@@ -287,6 +287,35 @@ export function BuildingModel({ type, level, x = 0, z = 0, footprintW = 1, footp
         return <GLBModel url={url} scale={1} rotationY={rotation} />;
       }
 
+      // --- Bridge (road on water) ---
+      case 'bridge': {
+        const { url, rotation } = roadModelAndRotation(roadVariant || 'straight_ns');
+        return (
+          <group position={[0, 0.12, 0]}>
+            {/* Bridge deck */}
+            <GLBModel url={url} scale={1} rotationY={rotation} />
+            {/* Support pillars */}
+            <mesh position={[-0.3, -0.15, 0]}>
+              <cylinderGeometry args={[0.03, 0.04, 0.3, 6]} />
+              <meshLambertMaterial color="#8B7355" />
+            </mesh>
+            <mesh position={[0.3, -0.15, 0]}>
+              <cylinderGeometry args={[0.03, 0.04, 0.3, 6]} />
+              <meshLambertMaterial color="#8B7355" />
+            </mesh>
+            {/* Railings */}
+            <mesh position={[-0.45, 0.06, 0]}>
+              <boxGeometry args={[0.02, 0.12, 0.95]} />
+              <meshLambertMaterial color="#6B5340" />
+            </mesh>
+            <mesh position={[0.45, 0.06, 0]}>
+              <boxGeometry args={[0.02, 0.12, 0.95]} />
+              <meshLambertMaterial color="#6B5340" />
+            </mesh>
+          </group>
+        );
+      }
+
       // --- GLB Rails ---
       case 'rail': {
         const { url, rotation } = railModelAndRotation(railVariant || 'straight_ns');

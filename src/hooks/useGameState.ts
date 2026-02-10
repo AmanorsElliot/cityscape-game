@@ -139,6 +139,19 @@ export function getFootprint(tool: TileType, rotation: number): [number, number]
 function canPlaceFootprint(
   grid: Tile[][], x: number, y: number, w: number, h: number, tool: TileType, size: number
 ): boolean {
+  // Bridges must be placed on water tiles
+  if (tool === 'bridge') {
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || nx >= size || ny < 0 || ny >= size) return false;
+        const tile = grid[ny][nx];
+        if (tile.type !== 'water' && tile.type !== 'bridge') return false;
+      }
+    }
+    return true;
+  }
+
   for (let dy = 0; dy < h; dy++) {
     for (let dx = 0; dx < w; dx++) {
       const nx = x + dx, ny = y + dy;
@@ -222,7 +235,9 @@ function bulldozeBuilding(grid: Tile[][], x: number, y: number): boolean {
       if (nx < grid[0].length && ny < grid.length) {
         const t = grid[ny][nx];
         if ((t.anchorX === ax && t.anchorY === ay) || (nx === ax && ny === ay)) {
-          grid[ny][nx] = { ...grid[ny][nx], type: 'grass', level: 0, anchorX: undefined, anchorY: undefined };
+          // Bridges revert to water when bulldozed
+          const revertType = anchorTile.type === 'bridge' ? 'water' : 'grass';
+          grid[ny][nx] = { ...grid[ny][nx], type: revertType as TileType, level: 0, anchorX: undefined, anchorY: undefined };
         }
       }
     }

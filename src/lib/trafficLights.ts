@@ -1,6 +1,6 @@
 import { Tile, TileType } from '@/types/game';
 
-const ROAD_LIKE = new Set<TileType>(['road', 'bus_depot', 'train_station']);
+const ROAD_LIKE = new Set<TileType>(['road', 'bridge', 'bus_depot', 'train_station']);
 const RAIL_LIKE = new Set<TileType>(['rail', 'train_station']);
 
 export interface TrafficLight {

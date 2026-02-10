@@ -475,7 +475,7 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
           // For roads, compute connectivity variant
           let rv: RoadVariant | undefined;
           let rlv: RailVariant | undefined;
-          if (tile.type === 'road') {
+          if (tile.type === 'road' || tile.type === 'bridge') {
             rv = getRoadVariant(gameState.grid, x, z, gridSize);
           }
           if (tile.type === 'rail') {
@@ -570,7 +570,11 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
             const nx = hoveredTile.x + dx, nz = hoveredTile.z + dy;
             if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) { valid = false; break; }
             const tile = gameState.grid[nz][nx];
-            if (tile.type === 'water' || (!['grass', 'sand', 'forest'].includes(tile.type))) valid = false;
+            if (tool === 'bridge') {
+              if (tile.type !== 'water' && tile.type !== 'bridge') valid = false;
+            } else {
+              if (tile.type === 'water' || (!['grass', 'sand', 'forest'].includes(tile.type))) valid = false;
+            }
           }
         }
         return (
