@@ -117,7 +117,14 @@ const Index = () => {
       )}
 
       {/* Bottom toolbar - scrollable on mobile */}
-      <div className="absolute bottom-safe-bottom left-0 right-0 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-10 px-2 sm:px-0">
+      <div
+        className="absolute bottom-safe-bottom left-0 right-0 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-10 px-2 sm:px-0"
+        onPointerDown={e => e.stopPropagation()}
+        onPointerUp={e => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
+        onTouchStart={e => e.stopPropagation()}
+        onTouchEnd={e => e.stopPropagation()}
+      >
         <div className="overflow-x-auto scrollbar-hide">
           <Toolbar selected={gameState.selectedTool} onSelect={selectTool} money={gameState.resources.money} />
         </div>
