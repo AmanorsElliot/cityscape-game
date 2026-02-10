@@ -5,7 +5,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { TileType, TILE_COSTS, TILE_LABELS, TILE_SIZE } from '@/types/game';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
 interface Props {
   selected: TileType | 'bulldoze';
@@ -120,26 +120,46 @@ function getSizeLabel(type: TileType | 'bulldoze'): string | null {
 
 export default function Toolbar({ selected, onSelect, money }: Props) {
   const [openGroup, setOpenGroup] = useState<string | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
 
+  // Close dropdown when clicking outside - use click event (fires after touch) for reliability
   useEffect(() => {
-    const handler = (e: MouseEvent | TouchEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+    if (!openGroup) return;
+    const handler = (e: Event) => {
+      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
         setOpenGroup(null);
       }
     };
-    document.addEventListener('mousedown', handler);
-    document.addEventListener('touchstart', handler);
+    // Use setTimeout to avoid the current click/touch from immediately closing it
+    const id = setTimeout(() => {
+      document.addEventListener('click', handler, true);
+      document.addEventListener('touchend', handler, true);
+    }, 10);
     return () => {
-      document.removeEventListener('mousedown', handler);
-      document.removeEventListener('touchstart', handler);
+      clearTimeout(id);
+      document.removeEventListener('click', handler, true);
+      document.removeEventListener('touchend', handler, true);
     };
-  }, []);
+  }, [openGroup]);
 
   const isGroupActive = (group: ToolGroup) => group.items.some(i => i.type === selected);
 
+  const handleGroupClick = useCallback((group: ToolGroup, isOpen: boolean) => {
+    if (group.items.length === 1) {
+      onSelect(group.items[0].type);
+      setOpenGroup(null);
+    } else {
+      setOpenGroup(isOpen ? null : group.id);
+    }
+  }, [onSelect]);
+
+  const handleItemClick = useCallback((type: TileType | 'bulldoze') => {
+    onSelect(type);
+    setOpenGroup(null);
+  }, [onSelect]);
+
   return (
-    <div className="glass-panel rounded-2xl p-1.5 flex gap-1" ref={dropdownRef}>
+    <div className="glass-panel rounded-2xl p-1.5 flex gap-1" ref={toolbarRef}>
       {toolGroups.map(group => {
         const GroupIcon = group.icon;
         const active = isGroupActive(group);
@@ -148,21 +168,15 @@ export default function Toolbar({ selected, onSelect, money }: Props) {
         return (
           <div key={group.id} className="relative">
             <button
-              onPointerDown={(e) => {
-                e.stopPropagation();
-              }}
               onClick={(e) => {
+                e.preventDefault();
                 e.stopPropagation();
-                if (group.items.length === 1) {
-                  onSelect(group.items[0].type);
-                  setOpenGroup(null);
-                } else {
-                  setOpenGroup(isOpen ? null : group.id);
-                }
+                handleGroupClick(group, isOpen);
               }}
-              className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[10px] font-display tracking-wider transition-all touch-manipulation
+              className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[10px] font-display tracking-wider transition-all select-none
                 ${active ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/40'}
               `}
+              style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
               title={group.label}
             >
               <GroupIcon className="w-4 h-4" />
@@ -171,10 +185,7 @@ export default function Toolbar({ selected, onSelect, money }: Props) {
             </button>
 
             {isOpen && group.items.length > 1 && (
-              <div
-                onPointerDown={(e) => e.stopPropagation()}
-                className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-[100] rounded-xl p-1.5 min-w-[180px] shadow-xl border border-border/50 bg-card backdrop-blur-xl"
-              >
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-[100] rounded-xl p-1.5 min-w-[180px] shadow-xl border border-border/50 bg-card">
                 {group.items.map(({ type, icon: Icon, label }) => {
                   const cost = TILE_COSTS[type];
                   const canAfford = money >= cost;
@@ -184,13 +195,17 @@ export default function Toolbar({ selected, onSelect, money }: Props) {
                   return (
                     <button
                       key={type}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => { e.stopPropagation(); onSelect(type); setOpenGroup(null); }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (canAfford) handleItemClick(type);
+                      }}
                       disabled={!canAfford}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all touch-manipulation
+                      className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all select-none
                         ${isActive ? 'bg-primary/15 text-primary' : 'text-foreground/80 hover:bg-secondary/50 hover:text-foreground'}
                         ${!canAfford ? 'opacity-35 cursor-not-allowed' : 'cursor-pointer'}
                       `}
+                      style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
                     >
                       <Icon className="w-4 h-4 shrink-0" />
                       <div className="flex-1 min-w-0">
