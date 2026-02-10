@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useGameState } from '@/hooks/useGameState';
 import { useSaveSystem } from '@/hooks/useSaveSystem';
-import IsometricCanvas from '@/components/game/IsometricCanvas';
+import ThreeCanvas from '@/components/game/ThreeCanvas';
 import Toolbar from '@/components/game/Toolbar';
 import ResourceBar from '@/components/game/ResourceBar';
 import SpeedControls from '@/components/game/SpeedControls';
@@ -91,7 +91,7 @@ const Index = () => {
 
       {/* Canvas */}
       <div className="flex-1 relative">
-        <IsometricCanvas gameState={gameState} onTileClick={placeTile} onTileDrag={placeTileLine} />
+        <ThreeCanvas gameState={gameState} onTileClick={placeTile} onTileDrag={placeTileLine} />
       </div>
 
       {/* Bottom toolbar */}

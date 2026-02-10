@@ -1,0 +1,423 @@
+import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
+import { useFrame, useThree } from '@react-three/fiber';
+import * as THREE from 'three';
+import {
+  GameState, TileType, TILE_COLORS, DRAGGABLE_TYPES, ZONE_TYPES, WATER_ADJACENT_TYPES,
+  SmogParticle, OverlayType, isRCIType,
+} from '@/types/game';
+import { BuildingModel, TERRAIN_SET } from './BuildingModels';
+
+const AZIMUTH_ANGLES = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
+const DAY_LENGTH = 240;
+
+interface Props {
+  gameState: GameState;
+  cameraAngle: number;
+  cameraZoom: number;
+  onTileClick: (x: number, y: number) => void;
+  onTileDrag: (tiles: { x: number; y: number }[]) => void;
+}
+
+// --- Camera Rig ---
+function CameraRig({ angle, zoom, panOffset, gridSize }: {
+  angle: number; zoom: number; panOffset: { x: number; z: number }; gridSize: number;
+}) {
+  const { camera } = useThree();
+  const currentAzimuth = useRef(AZIMUTH_ANGLES[0]);
+  const currentZoom = useRef(zoom);
+
+  useFrame(() => {
+    const targetAz = AZIMUTH_ANGLES[angle];
+    let diff = targetAz - currentAzimuth.current;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    currentAzimuth.current += diff * 0.07;
+
+    currentZoom.current += (zoom - currentZoom.current) * 0.1;
+
+    const cx = gridSize / 2 + panOffset.x;
+    const cz = gridSize / 2 + panOffset.z;
+    const dist = 120;
+    const polarAngle = Math.PI * 0.22;
+
+    camera.position.set(
+      cx + dist * Math.cos(polarAngle) * Math.sin(currentAzimuth.current),
+      dist * Math.sin(polarAngle) + 15,
+      cz + dist * Math.cos(polarAngle) * Math.cos(currentAzimuth.current),
+    );
+
+    const ortho = camera as THREE.OrthographicCamera;
+    ortho.zoom = currentZoom.current;
+    camera.lookAt(cx, 0, cz);
+    camera.updateProjectionMatrix();
+  });
+  return null;
+}
+
+// --- Terrain Mesh ---
+function Terrain({ grid, gridSize }: { grid: GameState['grid']; gridSize: number }) {
+  const geometry = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    const positions: number[] = [];
+    const colors: number[] = [];
+    const indices: number[] = [];
+
+    for (let z = 0; z < gridSize; z++) {
+      for (let x = 0; x < gridSize; x++) {
+        const tile = grid[z][x];
+        const baseIdx = (z * gridSize + x) * 4;
+        const h = tile.type === 'water' ? -0.12 : 0;
+
+        positions.push(x, h, z, x + 1, h, z, x + 1, h, z + 1, x, h, z + 1);
+
+        const color = new THREE.Color(TILE_COLORS[tile.type][0]);
+        for (let i = 0; i < 4; i++) colors.push(color.r, color.g, color.b);
+
+        indices.push(baseIdx, baseIdx + 1, baseIdx + 2, baseIdx, baseIdx + 2, baseIdx + 3);
+      }
+    }
+
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+  }, [grid, gridSize]);
+
+  return (
+    <mesh geometry={geometry}>
+      <meshLambertMaterial vertexColors />
+    </mesh>
+  );
+}
+
+// --- Water surface animation ---
+function WaterSurface({ grid, gridSize }: { grid: GameState['grid']; gridSize: number }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  const geometry = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    const positions: number[] = [];
+    const indices: number[] = [];
+    let idx = 0;
+
+    for (let z = 0; z < gridSize; z++) {
+      for (let x = 0; x < gridSize; x++) {
+        if (grid[z][x].type !== 'water') continue;
+        const baseIdx = idx * 4;
+        positions.push(x, -0.08, z, x + 1, -0.08, z, x + 1, -0.08, z + 1, x, -0.08, z + 1);
+        indices.push(baseIdx, baseIdx + 1, baseIdx + 2, baseIdx, baseIdx + 2, baseIdx + 3);
+        idx++;
+      }
+    }
+    if (idx === 0) return null;
+
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+  }, [grid, gridSize]);
+
+  useFrame(({ clock }) => {
+    if (meshRef.current) {
+      (meshRef.current.material as THREE.MeshBasicMaterial).opacity = 0.25 + Math.sin(clock.getElapsedTime() * 1.5) * 0.08;
+    }
+  });
+
+  if (!geometry) return null;
+  return (
+    <mesh ref={meshRef} geometry={geometry}>
+      <meshBasicMaterial color="#4fc3f7" transparent opacity={0.3} depthWrite={false} />
+    </mesh>
+  );
+}
+
+// --- Overlay Layer ---
+function OverlayLayer({ gameState }: { gameState: GameState }) {
+  const { overlay, grid, gridSize, coverage, pollutionMap } = gameState;
+  const isActive = overlay !== 'none' && overlay !== 'wind';
+
+  const geometry = useMemo(() => {
+    if (!isActive) return null;
+    let dataMap: number[][] | null = null;
+    switch (overlay) {
+      case 'fire': dataMap = coverage.fire; break;
+      case 'police': dataMap = coverage.police; break;
+      case 'health': dataMap = coverage.health; break;
+      case 'waterSupply': dataMap = coverage.waterSupply; break;
+      case 'sewage': dataMap = coverage.sewage; break;
+      case 'education': dataMap = coverage.education; break;
+      case 'transport': dataMap = coverage.transport; break;
+      case 'pollution': dataMap = pollutionMap; break;
+      default: dataMap = null;
+    }
+    if (!dataMap) return null;
+
+    const geo = new THREE.BufferGeometry();
+    const positions: number[] = [];
+    const colors: number[] = [];
+    const indices: number[] = [];
+    let idx = 0;
+
+    const overlayColors: Record<string, THREE.Color> = {
+      fire: new THREE.Color('#ff4444'),
+      police: new THREE.Color('#4488ff'),
+      health: new THREE.Color('#ff8844'),
+      waterSupply: new THREE.Color('#44aaff'),
+      sewage: new THREE.Color('#aa44ff'),
+      education: new THREE.Color('#88cc44'),
+      transport: new THREE.Color('#ccaa44'),
+      pollution: new THREE.Color('#887755'),
+    };
+    const baseColor = overlayColors[overlay] || new THREE.Color('#ffffff');
+
+    for (let z = 0; z < gridSize; z++) {
+      for (let x = 0; x < gridSize; x++) {
+        const val = dataMap[z]?.[x] || 0;
+        if (val < 0.05) continue;
+        const baseIdx = idx * 4;
+        const h = 0.04;
+        positions.push(x, h, z, x + 1, h, z, x + 1, h, z + 1, x, h, z + 1);
+
+        const intensity = Math.min(1, val);
+        for (let i = 0; i < 4; i++) {
+          colors.push(baseColor.r * intensity, baseColor.g * intensity, baseColor.b * intensity);
+        }
+
+        indices.push(baseIdx, baseIdx + 1, baseIdx + 2, baseIdx, baseIdx + 2, baseIdx + 3);
+        idx++;
+      }
+    }
+    if (idx === 0) return null;
+
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.setIndex(indices);
+    return geo;
+  }, [overlay, coverage, pollutionMap, gridSize]);
+
+  if (!geometry) return null;
+  return <mesh geometry={geometry}><meshBasicMaterial vertexColors transparent opacity={0.4} depthWrite={false} /></mesh>;
+}
+
+// --- Smog Particles ---
+function SmogCloud({ particles }: { particles: SmogParticle[] }) {
+  const geometry = useMemo(() => {
+    if (particles.length === 0) return null;
+    const geo = new THREE.BufferGeometry();
+    const positions = new Float32Array(particles.length * 3);
+    const sizes = new Float32Array(particles.length);
+
+    particles.forEach((p, i) => {
+      positions[i * 3] = p.x;
+      positions[i * 3 + 1] = 1.2 + p.size * 0.4;
+      positions[i * 3 + 2] = p.y;
+      sizes[i] = p.size * 4;
+    });
+
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    return geo;
+  }, [particles]);
+
+  if (!geometry || particles.length === 0) return null;
+  return (
+    <points geometry={geometry}>
+      <pointsMaterial size={2.5} sizeAttenuation transparent opacity={0.2} color="#8B7355" depthWrite={false} />
+    </points>
+  );
+}
+
+// --- Agents ---
+function AgentsLayer({ agents }: { agents: GameState['agents'] }) {
+  if (agents.length === 0) return null;
+  return (
+    <group>
+      {agents.slice(0, 100).map(agent => (
+        <mesh key={agent.id} position={[agent.x + 0.5, 0.08, agent.y + 0.5]}>
+          <boxGeometry args={[0.12, 0.08, 0.2]} />
+          <meshBasicMaterial color={agent.color} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+// --- Main Scene ---
+export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileClick, onTileDrag }: Props) {
+  const { camera, gl } = useThree();
+  const [panOffset, setPanOffset] = useState({ x: 0, z: 0 });
+  const [hoveredTile, setHoveredTile] = useState<{ x: number; z: number } | null>(null);
+  const isDragging = useRef(false);
+  const isPanning = useRef(false);
+  const dragTiles = useRef<{ x: number; y: number }[]>([]);
+  const lastPan = useRef({ x: 0, y: 0 });
+  const currentAzimuthRef = useRef(AZIMUTH_ANGLES[0]);
+
+  const gridSize = gameState.gridSize;
+
+  // Track current azimuth for pan direction
+  useFrame(() => {
+    const targetAz = AZIMUTH_ANGLES[cameraAngle];
+    let diff = targetAz - currentAzimuthRef.current;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    currentAzimuthRef.current += diff * 0.07;
+  });
+
+  const screenToGrid = useCallback((clientX: number, clientY: number) => {
+    const rect = gl.domElement.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const target = new THREE.Vector3();
+    raycaster.ray.intersectPlane(plane, target);
+    if (!target) return null;
+    const gx = Math.floor(target.x);
+    const gz = Math.floor(target.z);
+    if (gx >= 0 && gx < gridSize && gz >= 0 && gz < gridSize) return { x: gx, z: gz };
+    return null;
+  }, [camera, gl, gridSize]);
+
+  useEffect(() => {
+    const dom = gl.domElement;
+
+    const onDown = (e: PointerEvent) => {
+      if (e.button === 2) {
+        isPanning.current = true;
+        lastPan.current = { x: e.clientX, y: e.clientY };
+        return;
+      }
+      if (e.button !== 0) return;
+
+      const tile = screenToGrid(e.clientX, e.clientY);
+      if (!tile) return;
+
+      if (DRAGGABLE_TYPES.includes(gameState.selectedTool)) {
+        isDragging.current = true;
+        dragTiles.current = [{ x: tile.x, y: tile.z }];
+      } else {
+        onTileClick(tile.x, tile.z);
+      }
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (isPanning.current) {
+        const dx = e.clientX - lastPan.current.x;
+        const dy = e.clientY - lastPan.current.y;
+        lastPan.current = { x: e.clientX, y: e.clientY };
+
+        // Transform screen delta to world XZ based on current camera azimuth
+        const az = currentAzimuthRef.current;
+        const rightX = Math.cos(az);
+        const rightZ = -Math.sin(az);
+        const fwdX = Math.sin(az);
+        const fwdZ = Math.cos(az);
+        const speed = 0.06 / Math.max(6, cameraZoom) * 18;
+        setPanOffset(p => ({
+          x: p.x + (-dx * rightX + dy * fwdX) * speed,
+          z: p.z + (-dx * rightZ + dy * fwdZ) * speed,
+        }));
+        return;
+      }
+
+      const tile = screenToGrid(e.clientX, e.clientY);
+      if (tile) setHoveredTile(tile);
+
+      if (isDragging.current && tile) {
+        const last = dragTiles.current[dragTiles.current.length - 1];
+        if (last && (last.x !== tile.x || last.y !== tile.z)) {
+          dragTiles.current.push({ x: tile.x, y: tile.z });
+        }
+      }
+    };
+
+    const onUp = () => {
+      if (isDragging.current && dragTiles.current.length > 0) {
+        onTileDrag(dragTiles.current);
+      }
+      isDragging.current = false;
+      isPanning.current = false;
+      dragTiles.current = [];
+    };
+
+    dom.addEventListener('pointerdown', onDown);
+    dom.addEventListener('pointermove', onMove);
+    dom.addEventListener('pointerup', onUp);
+    return () => {
+      dom.removeEventListener('pointerdown', onDown);
+      dom.removeEventListener('pointermove', onMove);
+      dom.removeEventListener('pointerup', onUp);
+    };
+  }, [gl, screenToGrid, gameState.selectedTool, onTileClick, onTileDrag, cameraZoom]);
+
+  // Day/night lighting
+  const daylight = gameState.timeOfDay / DAY_LENGTH;
+  const sunAngle = daylight * Math.PI;
+  const sunIntensity = Math.max(0.15, Math.sin(sunAngle));
+  const ambientIntensity = 0.25 + sunIntensity * 0.35;
+
+  // Collect buildings
+  const buildings = useMemo(() => {
+    const result: { x: number; z: number; type: TileType; level: number; key: string }[] = [];
+    for (let z = 0; z < gridSize; z++) {
+      for (let x = 0; x < gridSize; x++) {
+        const tile = gameState.grid[z][x];
+        if (!TERRAIN_SET.has(tile.type)) {
+          result.push({ x, z, type: tile.type, level: tile.level, key: `${x}-${z}` });
+        }
+      }
+    }
+    return result;
+  }, [gameState.grid, gridSize]);
+
+  return (
+    <>
+      <CameraRig angle={cameraAngle} zoom={cameraZoom} panOffset={panOffset} gridSize={gridSize} />
+
+      {/* Lighting */}
+      <ambientLight intensity={ambientIntensity} color="#b0c4de" />
+      <directionalLight
+        position={[
+          Math.cos(sunAngle) * 40 + gridSize / 2,
+          35,
+          Math.sin(sunAngle) * 20 + gridSize / 2,
+        ]}
+        intensity={sunIntensity * 0.8}
+        color="#ffe4b5"
+      />
+      <hemisphereLight color="#87ceeb" groundColor="#3a5a40" intensity={0.15} />
+
+      {/* Terrain */}
+      <Terrain grid={gameState.grid} gridSize={gridSize} />
+      <WaterSurface grid={gameState.grid} gridSize={gridSize} />
+
+      {/* Buildings */}
+      {buildings.map(b => (
+        <group key={b.key} position={[b.x + 0.5, 0, b.z + 0.5]}>
+          <BuildingModel type={b.type} level={b.level} />
+        </group>
+      ))}
+
+      {/* Hover highlight */}
+      {hoveredTile && (
+        <mesh position={[hoveredTile.x + 0.5, 0.03, hoveredTile.z + 0.5]} rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={[0.96, 0.96]} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.18} depthWrite={false} />
+        </mesh>
+      )}
+
+      {/* Effects */}
+      <SmogCloud particles={gameState.smogParticles} />
+      <OverlayLayer gameState={gameState} />
+      <AgentsLayer agents={gameState.agents} />
+
+      {/* Ground fog for atmosphere */}
+      <fog attach="fog" args={['#0a0a14', 60, 180]} />
+    </>
+  );
+}
