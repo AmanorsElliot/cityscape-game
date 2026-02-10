@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
+import { useRef, useState, useCallback, useEffect, useMemo, Suspense } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
@@ -507,6 +507,7 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
   return (
     <>
       <CameraRig angle={cameraAngle} zoom={cameraZoom} panOffset={panOffset} gridSize={gridSize} />
+      <Suspense fallback={null}>
 
       {/* Lighting */}
       <ambientLight intensity={ambientIntensity} color="#b0c4de" />
@@ -539,7 +540,7 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
       {/* Buildings - position at center of footprint */}
       {buildings.map(b => (
         <group key={b.key} position={[b.x + b.fw / 2, 0, b.z + b.fh / 2]}>
-          <BuildingModel type={b.type} level={b.level} footprintW={b.fw} footprintH={b.fh} roadVariant={b.roadVariant} />
+          <BuildingModel type={b.type} level={b.level} x={b.x} z={b.z} footprintW={b.fw} footprintH={b.fh} roadVariant={b.roadVariant} />
         </group>
       ))}
 
@@ -584,6 +585,7 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
 
       {/* Ground fog for atmosphere - pushed far to avoid hiding terrain */}
       <fog attach="fog" args={['#0a0a14', 200, 400]} />
+      </Suspense>
     </>
   );
 }
