@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { GameState, Camera, TILE_COLORS, TileType, OverlayType, Agent, DRAGGABLE_TYPES, ZONE_TYPES, isAdjacentToRoad } from '@/types/game';
+import { GameState, Camera, TILE_COLORS, TileType, OverlayType, Agent, DRAGGABLE_TYPES, ZONE_TYPES, isAdjacentToRoad, isRCIType } from '@/types/game';
 import { calculatePopulationDensity, calculateLandValue, calculateHappinessMap } from '@/lib/serviceCoverage';
 
 interface Props {
@@ -99,33 +99,118 @@ function drawTile(ctx: CanvasRenderingContext2D, x: number, y: number, cam: Came
   const dpr = window.devicePixelRatio || 1;
   const cw = ctx.canvas.width / dpr;
   const ch = ctx.canvas.height / dpr;
-  if (sx + w < 0 || sx - w > cw || sy + h + 80 < 0 || sy - h - 80 > ch) return;
+  if (sx + w < 0 || sx - w > cw || sy + h + 100 < 0 || sy - h - 100 > ch) return;
 
   if (type === 'water') { drawWaterTile(ctx, sx, sy, w, h, tick, x, y, daylight); return; }
 
   const colors = TILE_COLORS[type];
   const isFlat = FLAT_TYPES.includes(type);
-  const buildingHeight = isFlat ? 0 : level * 8 * cam.zoom;
+  const rci = isRCIType(type);
+  const isHiDensity = type.endsWith('_hi');
+  const isMdDensity = type.endsWith('_md');
+
+  // Building heights vary by density
+  let buildingHeight = 0;
+  if (!isFlat) {
+    if (isHiDensity) buildingHeight = level * 12 * cam.zoom;
+    else if (isMdDensity) buildingHeight = level * 10 * cam.zoom;
+    else buildingHeight = level * 7 * cam.zoom;
+  }
   const treeHeight = type === 'forest' ? 6 * cam.zoom : 0;
-  const serviceExtra = SERVICE_TYPES.includes(type) ? 6 * cam.zoom : 0;
+  const serviceExtra = SERVICE_TYPES.includes(type) ? 8 * cam.zoom : 0;
   const totalHeight = buildingHeight + treeHeight + serviceExtra;
 
   if (isPreview) ctx.globalAlpha = isInvalid ? 0.25 : 0.5;
 
-  // Apply daylight tinting
   const tintAmount = Math.floor((1 - daylight) * 50);
+  const nightGlow = 1 - daylight;
 
+  // === BUILDING WALLS ===
   if (totalHeight > 0) {
+    // Left wall
     ctx.beginPath(); ctx.moveTo(sx - w, sy); ctx.lineTo(sx, sy + h); ctx.lineTo(sx, sy + h - totalHeight); ctx.lineTo(sx - w, sy - totalHeight); ctx.closePath();
-    ctx.fillStyle = darken(colors[2], tintAmount); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.5; ctx.stroke();
+    ctx.fillStyle = darken(colors[2], tintAmount); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 0.5; ctx.stroke();
+    // Right wall
     ctx.beginPath(); ctx.moveTo(sx + w, sy); ctx.lineTo(sx, sy + h); ctx.lineTo(sx, sy + h - totalHeight); ctx.lineTo(sx + w, sy - totalHeight); ctx.closePath();
     ctx.fillStyle = darken(colors[1], tintAmount); ctx.fill(); ctx.stroke();
+
+    // === FLOOR LINES for tall buildings ===
+    if (rci && level >= 2 && cam.zoom > 0.35) {
+      const floorH = (isHiDensity ? 12 : isMdDensity ? 10 : 7) * cam.zoom;
+      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+      ctx.lineWidth = 0.5;
+      for (let f = 1; f < level; f++) {
+        const fy = sy + h - f * floorH;
+        // Left wall floor line
+        ctx.beginPath(); ctx.moveTo(sx - w, fy - h); ctx.lineTo(sx, fy); ctx.stroke();
+        // Right wall floor line
+        ctx.beginPath(); ctx.moveTo(sx + w, fy - h); ctx.lineTo(sx, fy); ctx.stroke();
+      }
+    }
+
+    // === WINDOWS ===
+    if (rci && level >= 1 && cam.zoom > 0.35) {
+      const windowAlpha = 0.25 + nightGlow * 0.75;
+      const windowColor = rci === 'commercial'
+        ? `rgba(100,200,255,${windowAlpha})`
+        : rci === 'industrial'
+          ? `rgba(255,200,100,${windowAlpha})`
+          : `rgba(255,255,${Math.floor(150 + nightGlow * 100)},${windowAlpha})`;
+      ctx.fillStyle = windowColor;
+
+      const dotW = 1.5 * cam.zoom;
+      const dotH = 2 * cam.zoom;
+      const cols = isHiDensity ? 4 : isMdDensity ? 3 : 2;
+      const floorH = (isHiDensity ? 12 : isMdDensity ? 10 : 7) * cam.zoom;
+
+      for (let floor = 0; floor < level; floor++) {
+        const baseY = sy + h - totalHeight + floor * floorH;
+        for (let col = 0; col < cols; col++) {
+          const offset = (col - (cols - 1) / 2) * dotW * 2.5;
+          // Left wall windows
+          ctx.fillRect(sx - w * 0.5 + offset * 0.5, baseY + floorH * 0.3, dotW, dotH);
+          // Right wall windows
+          ctx.fillRect(sx + w * 0.3 + offset * 0.5, baseY + floorH * 0.3, dotW, dotH);
+        }
+      }
+    }
+
+    // === HI-DENSITY ROOFTOP FEATURES ===
+    if (isHiDensity && cam.zoom > 0.4) {
+      // Antenna/spire
+      const antennaH = 5 * cam.zoom;
+      ctx.strokeStyle = darken(colors[0], tintAmount + 20);
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(sx, sy + h - totalHeight); ctx.lineTo(sx, sy + h - totalHeight - antennaH); ctx.stroke();
+      // Red light at top (blinks)
+      if (Math.sin(tick * 0.1) > 0) {
+        ctx.fillStyle = 'rgba(255,50,50,0.8)';
+        ctx.beginPath(); ctx.arc(sx, sy + h - totalHeight - antennaH, 1.5 * cam.zoom, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    // === MD-DENSITY BALCONIES ===
+    if (isMdDensity && level >= 2 && cam.zoom > 0.5) {
+      ctx.fillStyle = darken(colors[1], tintAmount + 15);
+      const balconyW = w * 0.15;
+      for (let f = 1; f < level; f++) {
+        const fy = sy + h - f * 10 * cam.zoom;
+        ctx.fillRect(sx + w - balconyW, fy - h * 0.3, balconyW * 1.5, h * 0.15);
+      }
+    }
   }
 
+  // === TOP FACE ===
   ctx.beginPath(); ctx.moveTo(sx, sy - h - totalHeight); ctx.lineTo(sx + w, sy - totalHeight); ctx.lineTo(sx, sy + h - totalHeight); ctx.lineTo(sx - w, sy - totalHeight); ctx.closePath();
   const topColor = hover ? lighten(colors[0], 30) : darken(colors[0], tintAmount);
   ctx.fillStyle = topColor; ctx.fill();
   ctx.strokeStyle = hover ? 'rgba(94,234,212,0.6)' : 'rgba(0,0,0,0.1)'; ctx.lineWidth = hover ? 2 : 0.3; ctx.stroke();
+
+  // Roof detail for commercial
+  if (rci === 'commercial' && !isHiDensity && level >= 2 && cam.zoom > 0.4) {
+    ctx.fillStyle = darken(colors[0], tintAmount + 20);
+    ctx.fillRect(sx - w * 0.2, sy - totalHeight - h * 0.3, w * 0.4, h * 0.3);
+  }
 
   // Invalid placement indicator
   if (isPreview && isInvalid) {
@@ -133,45 +218,63 @@ function drawTile(ctx: CanvasRenderingContext2D, x: number, y: number, cam: Came
     ctx.fillStyle = 'rgba(255, 50, 50, 0.4)'; ctx.fill();
   }
 
+  // Service icons
   if (SERVICE_TYPES.includes(type) && cam.zoom > 0.4) {
-    const iconSize = 3 * cam.zoom;
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    const iconSize = 3.5 * cam.zoom;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
     if (type === 'hospital') {
-      ctx.fillRect(sx - iconSize * 0.3, sy - totalHeight - iconSize, iconSize * 0.6, iconSize * 2);
-      ctx.fillRect(sx - iconSize, sy - totalHeight - iconSize * 0.3, iconSize * 2, iconSize * 0.6);
-    } else if (type === 'school' || type === 'university') {
-      ctx.fillRect(sx - iconSize * 0.6, sy - totalHeight - iconSize * 0.8, iconSize * 1.2, iconSize * 0.8);
-      ctx.fillStyle = colors[2];
-      ctx.fillRect(sx - iconSize * 0.1, sy - totalHeight - iconSize * 0.8, iconSize * 0.2, iconSize * 0.8);
-    } else {
-      ctx.beginPath(); ctx.arc(sx, sy - totalHeight - iconSize * 0.5, iconSize * 0.5, 0, Math.PI * 2); ctx.fill();
-    }
-  }
-
-  // Windows — glow brighter at night
-  if (level >= 2 && !NO_WINDOWS.includes(type)) {
-    const dotSize = 2 * cam.zoom;
-    const nightGlow = 1 - daylight;
-    const windowAlpha = 0.3 + nightGlow * 0.7;
-    ctx.fillStyle = `rgba(255,255,${Math.floor(150 + nightGlow * 100)},${windowAlpha})`;
-    for (let row = 0; row < level; row++) {
-      for (let col = 0; col < 2; col++) {
-        ctx.fillRect(sx - dotSize * 1.5 + col * dotSize * 2, sy - totalHeight + row * dotSize * 2.5 - dotSize, dotSize, dotSize);
-      }
-    }
-    // Night glow bloom
-    if (daylight < 0.4 && cam.zoom > 0.4) {
-      ctx.fillStyle = `rgba(255,240,150,${(0.4 - daylight) * 0.15})`;
+      ctx.fillRect(sx - iconSize * 0.3, sy - totalHeight - h - iconSize, iconSize * 0.6, iconSize * 2);
+      ctx.fillRect(sx - iconSize, sy - totalHeight - h - iconSize * 0.3, iconSize * 2, iconSize * 0.6);
+    } else if (type === 'fire_station') {
+      // Flame shape
+      ctx.fillStyle = 'rgba(255,100,50,0.9)';
       ctx.beginPath();
-      ctx.arc(sx, sy - totalHeight / 2, totalHeight * 0.8, 0, Math.PI * 2);
+      ctx.moveTo(sx, sy - totalHeight - h - iconSize * 1.5);
+      ctx.quadraticCurveTo(sx + iconSize, sy - totalHeight - h, sx, sy - totalHeight - h + iconSize * 0.3);
+      ctx.quadraticCurveTo(sx - iconSize, sy - totalHeight - h, sx, sy - totalHeight - h - iconSize * 1.5);
       ctx.fill();
+    } else if (type === 'police_station') {
+      // Star badge
+      ctx.fillStyle = 'rgba(100,180,255,0.9)';
+      ctx.beginPath(); ctx.arc(sx, sy - totalHeight - h - iconSize * 0.3, iconSize * 0.6, 0, Math.PI * 2); ctx.fill();
+    } else if (type === 'school' || type === 'university') {
+      ctx.fillRect(sx - iconSize * 0.7, sy - totalHeight - h - iconSize * 0.6, iconSize * 1.4, iconSize * 0.7);
+      ctx.fillStyle = colors[2];
+      ctx.fillRect(sx - iconSize * 0.1, sy - totalHeight - h - iconSize * 0.6, iconSize * 0.2, iconSize * 0.7);
+    } else {
+      ctx.beginPath(); ctx.arc(sx, sy - totalHeight - h - iconSize * 0.3, iconSize * 0.5, 0, Math.PI * 2); ctx.fill();
     }
   }
 
+  // Night glow bloom for buildings
+  if (rci && daylight < 0.4 && totalHeight > 0 && cam.zoom > 0.3) {
+    ctx.fillStyle = `rgba(255,240,150,${(0.4 - daylight) * 0.12})`;
+    ctx.beginPath();
+    ctx.arc(sx, sy - totalHeight / 2, totalHeight * 0.9 + w * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Forest trees
   if (type === 'forest' && cam.zoom > 0.5) {
     ctx.fillStyle = darken('#0d4a0d', tintAmount);
     const ts = 3 * cam.zoom;
     ctx.beginPath(); ctx.moveTo(sx, sy - totalHeight - ts * 2); ctx.lineTo(sx - ts, sy - totalHeight); ctx.lineTo(sx + ts, sy - totalHeight); ctx.closePath(); ctx.fill();
+    // Second smaller tree
+    ctx.fillStyle = darken('#1a6b1a', tintAmount);
+    ctx.beginPath(); ctx.moveTo(sx - ts, sy - totalHeight - ts * 1.3); ctx.lineTo(sx - ts * 1.8, sy - totalHeight + ts * 0.3); ctx.lineTo(sx - ts * 0.2, sy - totalHeight + ts * 0.3); ctx.closePath(); ctx.fill();
+  }
+
+  // Park details
+  if (type === 'park' && cam.zoom > 0.5) {
+    const ts = 2 * cam.zoom;
+    // Small trees
+    ctx.fillStyle = darken('#059669', tintAmount);
+    ctx.beginPath(); ctx.arc(sx - ts * 1.5, sy - h - ts, ts, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sx + ts, sy - h - ts * 0.8, ts * 0.8, 0, Math.PI * 2); ctx.fill();
+    // Path
+    ctx.strokeStyle = 'rgba(200,200,180,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(sx - w * 0.5, sy); ctx.lineTo(sx + w * 0.3, sy - h * 0.5); ctx.stroke();
   }
 
   // Street lights at night on roads

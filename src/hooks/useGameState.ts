@@ -366,5 +366,23 @@ export function useGameState() {
     setGameState(createInitialState());
   }, []);
 
-  return { gameState, placeTile, placeTileLine, selectTool, setSpeed, regenerateMap, setOverlay };
+  const loadSave = useCallback((data: { grid_data: any; resources: any; tick: number; time_of_day: number }) => {
+    setGameState(prev => {
+      const grid: Tile[][] = (data.grid_data as any[][]).map(row =>
+        row.map(t => ({ type: t.type as TileType, level: t.level, x: t.x, y: t.y, elevation: t.elevation }))
+      );
+      const coverage = calculateServiceCoverage(grid, GRID_SIZE);
+      return {
+        ...prev,
+        grid,
+        resources: data.resources || prev.resources,
+        tick: data.tick || 0,
+        timeOfDay: data.time_of_day || 0,
+        coverage,
+        agents: [],
+      };
+    });
+  }, []);
+
+  return { gameState, placeTile, placeTileLine, selectTool, setSpeed, regenerateMap, setOverlay, loadSave };
 }
