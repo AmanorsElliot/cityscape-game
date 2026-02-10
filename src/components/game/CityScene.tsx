@@ -582,8 +582,8 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
       <AgentsLayer agents={gameState.agents} />
       <TrafficLightsLayer lights={gameState.trafficLights} />
 
-      {/* Ground fog for atmosphere */}
-      <fog attach="fog" args={['#0a0a14', 60, 180]} />
+      {/* Ground fog for atmosphere - pushed far to avoid hiding terrain */}
+      <fog attach="fog" args={['#0a0a14', 200, 400]} />
     </>
   );
 }
