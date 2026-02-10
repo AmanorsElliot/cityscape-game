@@ -89,10 +89,10 @@ function roadModelAndRotation(variant: RoadVariant): { url: string; rotation: nu
   switch (variant) {
     case 'straight_ns': return { url: '/models/roads/road-straight.glb', rotation: R };
     case 'straight_ew': return { url: '/models/roads/road-straight.glb', rotation: 0 };
-    case 'corner_ne': return { url: '/models/roads/road-bend.glb', rotation: -R };
-    case 'corner_nw': return { url: '/models/roads/road-bend.glb', rotation: Math.PI };
-    case 'corner_se': return { url: '/models/roads/road-bend.glb', rotation: 0 };
-    case 'corner_sw': return { url: '/models/roads/road-bend.glb', rotation: R };
+    case 'corner_ne': return { url: '/models/roads/road-bend.glb', rotation: Math.PI };
+    case 'corner_nw': return { url: '/models/roads/road-bend.glb', rotation: -R };
+    case 'corner_se': return { url: '/models/roads/road-bend.glb', rotation: R };
+    case 'corner_sw': return { url: '/models/roads/road-bend.glb', rotation: 0 };
     case 'cross': return { url: '/models/roads/road-crossroad.glb', rotation: 0 };
     case 't_n': return { url: '/models/roads/road-intersection.glb', rotation: Math.PI };
     case 't_s': return { url: '/models/roads/road-intersection.glb', rotation: 0 };
