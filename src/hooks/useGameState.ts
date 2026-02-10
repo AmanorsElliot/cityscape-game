@@ -1,12 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
-  GameState, Tile, TileType, Resources, RCIDemand, BudgetEntry, Agent,
+  GameState, Tile, TileType, Resources, RCIDemand, BudgetEntry, Agent, Wind, SmogParticle,
   TILE_COSTS, TILE_MAINTENANCE, SERVICE_CAPACITY, POWER_OUTPUT, OverlayType, DRAGGABLE_TYPES,
-  isRCIType, getMaxLevel, isAdjacentToRoad, ZONE_TYPES,
+  isRCIType, getMaxLevel, isAdjacentToRoad, isAdjacentToWater, ZONE_TYPES, WATER_ADJACENT_TYPES,
 } from '@/types/game';
 import { generateTerrain } from '@/lib/terrainGen';
 import { calculateServiceCoverage } from '@/lib/serviceCoverage';
 import { spawnAgents, updateAgents } from '@/lib/agents';
+import { calculatePollutionMap, updateSmogParticles, calculateSickness, updateWind } from '@/lib/pollution';
 
 const GRID_SIZE = 64;
 const MAX_BUDGET_HISTORY = 100;
@@ -22,6 +23,7 @@ const initialResources: Resources = {
   maxWaterSupply: 0,
   sewageCapacity: 0,
   maxSewageCapacity: 0,
+  sickness: 0,
   demand: { residential: 0.5, commercial: 0, industrial: 0 },
 };
 
@@ -48,6 +50,10 @@ const TRANSPORT_TYPES: TileType[] = ['bus_depot', 'airport', 'helipad', 'train_s
 const WASTE_TYPES: TileType[] = ['garbage_dump', 'recycling_plant'];
 
 function isPowerType(t: TileType) { return POWER_TYPES.includes(t); }
+
+function createEmptyMap(size: number): number[][] {
+  return Array.from({ length: size }, () => Array(size).fill(0));
+}
 
 function calculateRCIDemand(grid: Tile[][], coverage: ReturnType<typeof calculateServiceCoverage>): RCIDemand {
   let R = 0, C = 0, I = 0;
@@ -104,13 +110,16 @@ function calculateRCIDemand(grid: Tile[][], coverage: ReturnType<typeof calculat
   };
 }
 
+const initialWind: Wind = { direction: Math.PI * 0.25, speed: 0.4 };
+
 function createInitialState(): GameState {
   const grid = generateTerrain(GRID_SIZE);
   const coverage = calculateServiceCoverage(grid, GRID_SIZE);
+  const pollutionMap = createEmptyMap(GRID_SIZE);
   return {
     grid, resources: initialResources, selectedTool: 'residential',
     tick: 0, speed: 1, gridSize: GRID_SIZE, coverage, budgetHistory: [], overlay: 'none', agents: [],
-    timeOfDay: 0,
+    timeOfDay: 0, wind: initialWind, smogParticles: [], pollutionMap,
   };
 }
 
@@ -132,6 +141,9 @@ export function useGameState() {
   const canPlaceZone = useCallback((grid: Tile[][], x: number, y: number, tool: TileType): boolean => {
     if (ZONE_TYPES.includes(tool)) {
       return isAdjacentToRoad(grid, x, y, GRID_SIZE);
+    }
+    if (WATER_ADJACENT_TYPES.includes(tool)) {
+      return isAdjacentToWater(grid, x, y, GRID_SIZE);
     }
     return true;
   }, []);
@@ -198,6 +210,7 @@ export function useGameState() {
           const cost = TILE_COSTS[tool];
           if (money < cost) continue;
           if (ZONE_TYPES.includes(tool) && !isAdjacentToRoad(newGrid, x, y, GRID_SIZE)) continue;
+          if (WATER_ADJACENT_TYPES.includes(tool) && !isAdjacentToWater(newGrid, x, y, GRID_SIZE)) continue;
           newGrid[y][x] = { ...newGrid[y][x], type: tool, level: 1 };
           money -= cost;
           changed = true;
@@ -294,7 +307,6 @@ export function useGameState() {
         let totalExpenses = rCount * 3;
         for (const [type, cost] of Object.entries(TILE_MAINTENANCE)) {
           const count = serviceCountMap[type as TileType] || 0;
-          // Also count specific tracked types
           let extra = 0;
           if (type === 'road') extra = roadCount;
           else if (type === 'park') extra = parkCount;
@@ -310,12 +322,21 @@ export function useGameState() {
         const eduCount = (serviceCountMap['elementary_school'] || 0) + (serviceCountMap['high_school'] || 0) + (serviceCountMap['university'] || 0) + (serviceCountMap['library'] || 0);
         const transportCount = (serviceCountMap['bus_depot'] || 0) + (serviceCountMap['airport'] || 0) + (serviceCountMap['helipad'] || 0) + (serviceCountMap['train_station'] || 0);
 
+        // Wind & pollution update
+        const newWind = updateWind(prev.wind, newTick);
+        const pollutionMap = newTick % 10 === 0 ? calculatePollutionMap(newGrid, GRID_SIZE, newWind) : prev.pollutionMap;
+        const sickness = newTick % 10 === 0 ? calculateSickness(newGrid, GRID_SIZE, pollutionMap, newWind) : prev.resources.sickness;
+
+        const speedMultiplier = [0, 1, 2, 3][prev.speed] || 1;
+        const smogParticles = updateSmogParticles(prev.smogParticles, newGrid, GRID_SIZE, newWind, speedMultiplier);
+
         const parkBonus = Math.min(20, parkCount * 3);
         const roadBonus = Math.min(8, roadCount * 0.5);
         const industrialPenalty = Math.min(15, iCount * 2);
         const powerPenalty = power > maxPower ? 15 : 0;
         const waterPenalty = waterSupply > maxWaterSupply ? 10 : 0;
         const sewagePenalty = sewageCapacity > maxSewageCapacity ? 8 : 0;
+        const sicknessPenalty = Math.min(20, sickness * 0.3);
         const jobSatisfaction = cCount + iCount >= rCount * 0.4 ? 8 : -8;
         const fireBonus = Math.min(10, fireCount * 5);
         const policeBonus = Math.min(10, policeCount * 5);
@@ -325,7 +346,7 @@ export function useGameState() {
 
         happiness = Math.max(0, Math.min(100,
           42 + parkBonus + roadBonus + fireBonus + policeBonus + healthBonus + jobSatisfaction + eduBonus + transportBonus
-          - industrialPenalty - powerPenalty - waterPenalty - sewagePenalty
+          - industrialPenalty - powerPenalty - waterPenalty - sewagePenalty - sicknessPenalty
         ));
 
         const coverage = newTick % 5 === 0 ? calculateServiceCoverage(newGrid, GRID_SIZE) : prev.coverage;
@@ -334,7 +355,6 @@ export function useGameState() {
         const budgetEntry: BudgetEntry = { tick: newTick, income: totalIncome, expenses: totalExpenses, balance: Math.round(money) };
         const budgetHistory = [...prev.budgetHistory, budgetEntry].slice(-MAX_BUDGET_HISTORY);
 
-        const speedMultiplier = [0, 1, 2, 3][prev.speed] || 1;
         let agents = updateAgents(prev.agents, speedMultiplier);
         if (newTick % 3 === 0) {
           agents = spawnAgents(newGrid, GRID_SIZE, agents, population);
@@ -342,9 +362,11 @@ export function useGameState() {
 
         return {
           ...prev, grid: newGrid, tick: newTick, coverage, budgetHistory, agents, timeOfDay,
+          wind: newWind, smogParticles, pollutionMap,
           resources: {
             money: Math.round(money), population, happiness: Math.round(happiness),
-            power, maxPower, waterSupply, maxWaterSupply, sewageCapacity, maxSewageCapacity, demand: newDemand,
+            power, maxPower, waterSupply, maxWaterSupply, sewageCapacity, maxSewageCapacity,
+            sickness: Math.round(sickness), demand: newDemand,
           },
         };
       });
@@ -366,7 +388,7 @@ export function useGameState() {
       return {
         ...prev,
         grid,
-        resources: data.resources || prev.resources,
+        resources: { ...initialResources, ...data.resources },
         tick: data.tick || 0,
         timeOfDay: data.time_of_day || 0,
         coverage,

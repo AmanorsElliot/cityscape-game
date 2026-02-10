@@ -130,7 +130,7 @@ const Index = () => {
 
       {/* Help hint */}
       <div className="absolute bottom-6 right-6 z-10 glass-panel rounded-xl px-3 py-2 text-xs text-muted-foreground">
-        Click to place • Drag zones/roads • Zones need roads • Scroll to zoom
+        Click to place • Drag zones/roads • Zones need roads • Water pump/sewage need water • Scroll to zoom
       </div>
     </div>
   );

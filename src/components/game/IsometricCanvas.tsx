@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { GameState, Camera, TILE_COLORS, TileType, OverlayType, Agent, DRAGGABLE_TYPES, ZONE_TYPES, isAdjacentToRoad, isRCIType } from '@/types/game';
+import { GameState, Camera, TILE_COLORS, TileType, OverlayType, Agent, SmogParticle, Wind, DRAGGABLE_TYPES, ZONE_TYPES, WATER_ADJACENT_TYPES, isAdjacentToRoad, isAdjacentToWater, isRCIType } from '@/types/game';
 import { calculatePopulationDensity, calculateLandValue, calculateHappinessMap } from '@/lib/serviceCoverage';
 
 interface Props {
@@ -71,8 +71,82 @@ function getOverlayColor(value: number, type: OverlayType): string {
     case 'happiness': return `rgba(${Math.floor(50 + (1 - v) * 200)}, ${Math.floor(50 + v * 200)}, 50, ${0.15 + v * 0.45})`;
     case 'education': return `rgba(${Math.floor(100 + v * 80)}, ${Math.floor(200 * v)}, ${Math.floor(50 + v * 50)}, ${v * 0.55})`;
     case 'transport': return `rgba(${Math.floor(200 * v)}, ${Math.floor(180 * v)}, 50, ${v * 0.5})`;
+    case 'pollution': return `rgba(${Math.floor(80 + v * 120)}, ${Math.floor(60 + v * 40)}, ${Math.floor(30 + v * 20)}, ${v * 0.55})`;
     default: return 'transparent';
   }
+}
+
+function drawSmogParticle(ctx: CanvasRenderingContext2D, particle: SmogParticle, cam: Camera) {
+  const [sx, sy] = toIso(particle.x, particle.y, cam);
+  const dpr = window.devicePixelRatio || 1;
+  const cw = ctx.canvas.width / dpr;
+  const ch = ctx.canvas.height / dpr;
+  if (sx < -60 || sx > cw + 60 || sy < -60 || sy > ch + 60) return;
+
+  const r = particle.size * 12 * cam.zoom;
+  const gradient = ctx.createRadialGradient(sx, sy - 8 * cam.zoom, 0, sx, sy - 8 * cam.zoom, r);
+  gradient.addColorStop(0, `rgba(120, 110, 90, ${particle.opacity * 0.6})`);
+  gradient.addColorStop(0.5, `rgba(100, 90, 70, ${particle.opacity * 0.3})`);
+  gradient.addColorStop(1, `rgba(80, 70, 50, 0)`);
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(sx, sy - 8 * cam.zoom, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawWindOverlay(ctx: CanvasRenderingContext2D, wind: Wind, cam: Camera, gridSize: number, tick: number) {
+  const arrowSpacing = 6;
+  ctx.strokeStyle = 'rgba(100, 200, 255, 0.35)';
+  ctx.fillStyle = 'rgba(100, 200, 255, 0.35)';
+  const len = (6 + wind.speed * 8) * cam.zoom;
+  const headSize = 2.5 * cam.zoom;
+
+  for (let gy = 2; gy < gridSize; gy += arrowSpacing) {
+    for (let gx = 2; gx < gridSize; gx += arrowSpacing) {
+      const [sx, sy] = toIso(gx, gy, cam);
+      const dpr = window.devicePixelRatio || 1;
+      const cw = ctx.canvas.width / dpr;
+      const ch = ctx.canvas.height / dpr;
+      if (sx < -20 || sx > cw + 20 || sy < -20 || sy > ch + 20) continue;
+
+      // Animate: arrows pulse along wind direction
+      const pulse = Math.sin(tick * 0.04 + gx * 0.3 + gy * 0.3) * 0.3;
+      const alpha = 0.2 + wind.speed * 0.3 + pulse * 0.1;
+      ctx.strokeStyle = `rgba(100, 200, 255, ${Math.max(0.1, alpha)})`;
+      ctx.fillStyle = `rgba(100, 200, 255, ${Math.max(0.1, alpha)})`;
+
+      // Convert wind direction to isometric
+      const wdx = Math.cos(wind.direction);
+      const wdy = Math.sin(wind.direction);
+      // iso transform: dx_iso = (wdx - wdy), dy_iso = (wdx + wdy) * 0.5
+      const idx = (wdx - wdy) * len * 0.5;
+      const idy = (wdx + wdy) * len * 0.25;
+
+      ctx.lineWidth = 1.2 * cam.zoom;
+      ctx.beginPath();
+      ctx.moveTo(sx - idx, sy - idy);
+      ctx.lineTo(sx + idx, sy + idy);
+      ctx.stroke();
+
+      // Arrowhead
+      const angle = Math.atan2(idy, idx);
+      ctx.beginPath();
+      ctx.moveTo(sx + idx, sy + idy);
+      ctx.lineTo(sx + idx - Math.cos(angle - 0.5) * headSize, sy + idy - Math.sin(angle - 0.5) * headSize);
+      ctx.lineTo(sx + idx - Math.cos(angle + 0.5) * headSize, sy + idy - Math.sin(angle + 0.5) * headSize);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // Wind speed indicator text (top-right of map)
+  const dirs = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'];
+  const dirIndex = Math.round(((wind.direction % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI / 4)) % 8;
+  const speedKmh = Math.round(wind.speed * 60);
+  ctx.fillStyle = 'rgba(100, 200, 255, 0.7)';
+  ctx.font = `${11 * cam.zoom}px monospace`;
+  const [labelX, labelY] = toIso(gridSize - 3, 3, cam);
+  ctx.fillText(`Wind: ${dirs[dirIndex]} ${speedKmh}km/h`, labelX - 40 * cam.zoom, labelY - 20 * cam.zoom);
 }
 
 function drawWaterTile(ctx: CanvasRenderingContext2D, sx: number, sy: number, w: number, h: number, tick: number, x: number, y: number, daylight: number) {
@@ -496,8 +570,8 @@ export default function IsometricCanvas({ gameState, onTileClick, onTileDrag }: 
   const isDraggableTool = DRAGGABLE_TYPES.includes(gameState.selectedTool);
 
   const overlayMap = useMemo<number[][] | null>(() => {
-    const { overlay, grid, gridSize, coverage } = gameState;
-    if (overlay === 'none') return null;
+    const { overlay, grid, gridSize, coverage, pollutionMap } = gameState;
+    if (overlay === 'none' || overlay === 'wind') return null;
     switch (overlay) {
       case 'population': return calculatePopulationDensity(grid, gridSize);
       case 'landValue': return calculateLandValue(grid, coverage, gridSize);
@@ -509,9 +583,10 @@ export default function IsometricCanvas({ gameState, onTileClick, onTileDrag }: 
       case 'happiness': return calculateHappinessMap(grid, coverage, gridSize);
       case 'education': return coverage.education;
       case 'transport': return coverage.transport;
+      case 'pollution': return pollutionMap;
       default: return null;
     }
-  }, [gameState.overlay, gameState.grid, gameState.coverage, gameState.gridSize]);
+  }, [gameState.overlay, gameState.grid, gameState.coverage, gameState.gridSize, gameState.pollutionMap]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -564,15 +639,28 @@ export default function IsometricCanvas({ gameState, onTileClick, onTileDrag }: 
       if (dragPreview) {
         const tool = gameState.selectedTool;
         const isZoneTool = ZONE_TYPES.includes(tool as TileType);
+        const isWaterTool = WATER_ADJACENT_TYPES.includes(tool as TileType);
         for (const { x, y } of dragPreview) {
-          const invalid = isZoneTool && !isAdjacentToRoad(gameState.grid, x, y, gameState.gridSize);
+          let invalid = false;
+          if (isZoneTool) invalid = !isAdjacentToRoad(gameState.grid, x, y, gameState.gridSize);
+          if (isWaterTool) invalid = !isAdjacentToWater(gameState.grid, x, y, gameState.gridSize);
           drawTile(ctx, x, y, cam, tool === 'bulldoze' ? 'road' : tool as TileType, 1, false, tickRef.current, daylight, undefined, undefined, true, invalid);
         }
+      }
+
+      // Draw smog particles
+      for (const particle of gameState.smogParticles) {
+        drawSmogParticle(ctx, particle, cam);
       }
 
       // Draw agents
       for (const agent of gameState.agents) {
         drawAgent(ctx, agent, cam, daylight);
+      }
+
+      // Draw wind overlay
+      if (gameState.overlay === 'wind') {
+        drawWindOverlay(ctx, gameState.wind, cam, gameState.gridSize, tickRef.current);
       }
 
       // Night overlay
