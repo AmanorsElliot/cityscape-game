@@ -289,9 +289,10 @@ function AgentsLayer({ agents }: { agents: GameState['agents'] }) {
         const ix = agent.x + (agent.targetX - agent.x) * agent.progress;
         const iy = agent.y + (agent.targetY - agent.y) * agent.progress;
 
-        // Calculate rotation based on direction
-        const dx = agent.targetX - agent.path[agent.pathIndex].x;
-        const dy = agent.targetY - agent.path[agent.pathIndex].y;
+        // Calculate rotation based on direction (guard against missing path entry)
+        const pathNode = agent.path?.[agent.pathIndex];
+        const dx = agent.targetX - (pathNode?.x ?? agent.x);
+        const dy = agent.targetY - (pathNode?.y ?? agent.y);
         const rotation = Math.atan2(dx, dy);
 
         // Offset to the right side of the road based on direction
