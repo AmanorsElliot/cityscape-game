@@ -4,12 +4,7 @@ function createEmptyMap(size: number): number[][] {
   return Array.from({ length: size }, () => Array(size).fill(0));
 }
 
-function applyRadialCoverage(
-  map: number[][],
-  cx: number, cy: number,
-  radius: number,
-  size: number
-) {
+function applyRadialCoverage(map: number[][], cx: number, cy: number, radius: number, size: number) {
   for (let dy = -radius; dy <= radius; dy++) {
     for (let dx = -radius; dx <= radius; dx++) {
       const nx = cx + dx;
@@ -30,24 +25,29 @@ export function calculateServiceCoverage(grid: Tile[][], size: number): ServiceC
   const health = createEmptyMap(size);
   const waterSupply = createEmptyMap(size);
   const sewage = createEmptyMap(size);
+  const education = createEmptyMap(size);
+  const transport = createEmptyMap(size);
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const tile = grid[y][x];
       const radius = SERVICE_RADIUS[tile.type];
       if (!radius) continue;
-
       switch (tile.type) {
         case 'fire_station': applyRadialCoverage(fire, x, y, radius, size); break;
         case 'police_station': applyRadialCoverage(police, x, y, radius, size); break;
         case 'hospital': applyRadialCoverage(health, x, y, radius, size); break;
         case 'water_pump': applyRadialCoverage(waterSupply, x, y, radius, size); break;
         case 'sewage': applyRadialCoverage(sewage, x, y, radius, size); break;
+        case 'school': applyRadialCoverage(education, x, y, radius, size); break;
+        case 'university': applyRadialCoverage(education, x, y, radius, size); break;
+        case 'bus_stop': applyRadialCoverage(transport, x, y, radius, size); break;
+        case 'train_station': applyRadialCoverage(transport, x, y, radius, size); break;
       }
     }
   }
 
-  return { fire, police, health, waterSupply, sewage };
+  return { fire, police, health, waterSupply, sewage, education, transport };
 }
 
 export function calculatePopulationDensity(grid: Tile[][], size: number): number[][] {
@@ -71,19 +71,16 @@ export function calculateLandValue(grid: Tile[][], coverage: ServiceCoverage, si
     for (let x = 0; x < size; x++) {
       const tile = grid[y][x];
       if (tile.type === 'water' || tile.type === 'sand') continue;
-
       let value = 0.1;
-      // Services boost land value
-      value += coverage.fire[y][x] * 0.15;
-      value += coverage.police[y][x] * 0.15;
-      value += coverage.health[y][x] * 0.15;
-      value += coverage.waterSupply[y][x] * 0.15;
-
-      // Parks and water proximity
+      value += coverage.fire[y][x] * 0.12;
+      value += coverage.police[y][x] * 0.12;
+      value += coverage.health[y][x] * 0.12;
+      value += coverage.waterSupply[y][x] * 0.12;
+      value += coverage.education[y][x] * 0.2;
+      value += coverage.transport[y][x] * 0.15;
       for (let dy = -3; dy <= 3; dy++) {
         for (let dx = -3; dx <= 3; dx++) {
-          const nx = x + dx;
-          const ny = y + dy;
+          const nx = x + dx, ny = y + dy;
           if (nx < 0 || nx >= size || ny < 0 || ny >= size) continue;
           const neighbor = grid[ny][nx];
           if (neighbor.type === 'park') value += 0.03;
@@ -91,17 +88,13 @@ export function calculateLandValue(grid: Tile[][], coverage: ServiceCoverage, si
           if (neighbor.type === 'industrial') value -= 0.04;
         }
       }
-
-      // Roads nearby
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
-          const nx = x + dx;
-          const ny = y + dy;
+          const nx = x + dx, ny = y + dy;
           if (nx < 0 || nx >= size || ny < 0 || ny >= size) continue;
           if (grid[ny][nx].type === 'road') { value += 0.05; break; }
         }
       }
-
       map[y][x] = Math.min(1, Math.max(0, value));
     }
   }
@@ -113,19 +106,18 @@ export function calculateHappinessMap(grid: Tile[][], coverage: ServiceCoverage,
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       if (grid[y][x].type !== 'residential') continue;
-      let h = 0.4;
-      h += coverage.fire[y][x] * 0.15;
-      h += coverage.police[y][x] * 0.15;
-      h += coverage.health[y][x] * 0.15;
-      h += coverage.waterSupply[y][x] * 0.1;
+      let h = 0.35;
+      h += coverage.fire[y][x] * 0.12;
+      h += coverage.police[y][x] * 0.12;
+      h += coverage.health[y][x] * 0.12;
+      h += coverage.waterSupply[y][x] * 0.08;
       h += coverage.sewage[y][x] * 0.05;
-      // Industrial penalty
+      h += coverage.education[y][x] * 0.15;
+      h += coverage.transport[y][x] * 0.1;
       for (let dy = -4; dy <= 4; dy++) {
         for (let dx = -4; dx <= 4; dx++) {
           const nx = x + dx, ny = y + dy;
-          if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[ny][nx].type === 'industrial') {
-            h -= 0.03;
-          }
+          if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[ny][nx].type === 'industrial') h -= 0.03;
         }
       }
       map[y][x] = Math.min(1, Math.max(0, h));

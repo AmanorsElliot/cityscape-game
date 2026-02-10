@@ -11,7 +11,7 @@ import BudgetPanel from '@/components/game/BudgetPanel';
 import { RefreshCw, BarChart3 } from 'lucide-react';
 
 const Index = () => {
-  const { gameState, placeTile, selectTool, setSpeed, regenerateMap, setOverlay } = useGameState();
+  const { gameState, placeTile, placeTileLine, selectTool, setSpeed, regenerateMap, setOverlay } = useGameState();
   const [showBudget, setShowBudget] = useState(false);
 
   return (
@@ -19,9 +19,7 @@ const Index = () => {
       {/* Top HUD */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3">
         <div className="glass-panel rounded-2xl px-5 py-2">
-          <h1 className="font-display text-sm font-bold tracking-wider glow-text text-primary">
-            CITYSCAPE
-          </h1>
+          <h1 className="font-display text-sm font-bold tracking-wider glow-text text-primary">CITYSCAPE</h1>
         </div>
         <ResourceBar resources={gameState.resources} />
         <SpeedControls speed={gameState.speed} onSetSpeed={setSpeed} />
@@ -36,7 +34,7 @@ const Index = () => {
 
       {/* Canvas */}
       <div className="flex-1 relative">
-        <IsometricCanvas gameState={gameState} onTileClick={placeTile} />
+        <IsometricCanvas gameState={gameState} onTileClick={placeTile} onTileDrag={placeTileLine} />
       </div>
 
       {/* Bottom toolbar */}
@@ -45,7 +43,7 @@ const Index = () => {
       </div>
 
       {/* Right panel */}
-      <div className="absolute top-20 right-4 z-10 flex flex-col gap-2">
+      <div className="absolute top-20 right-4 z-10 flex flex-col gap-2 max-h-[calc(100vh-140px)] overflow-y-auto scrollbar-hide">
         <Minimap gameState={gameState} />
         <DemandMeter demand={gameState.resources.demand} />
         <OverlaySelector current={gameState.overlay} onSelect={setOverlay} />
@@ -62,17 +60,13 @@ const Index = () => {
       {/* Budget panel */}
       {showBudget && (
         <div className="absolute top-20 left-4 z-10">
-          <BudgetPanel
-            resources={gameState.resources}
-            budgetHistory={gameState.budgetHistory}
-            onClose={() => setShowBudget(false)}
-          />
+          <BudgetPanel resources={gameState.resources} budgetHistory={gameState.budgetHistory} onClose={() => setShowBudget(false)} />
         </div>
       )}
 
       {/* Help hint */}
       <div className="absolute bottom-6 right-6 z-10 glass-panel rounded-xl px-3 py-2 text-xs text-muted-foreground">
-        Click to place • Drag to pan • Scroll to zoom
+        Click to place • Drag roads • Drag to pan • Scroll to zoom
       </div>
     </div>
   );

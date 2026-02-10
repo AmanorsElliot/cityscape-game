@@ -23,6 +23,10 @@ const MINIMAP_COLORS: Record<TileType, string> = {
   fire_station: '#f87171',
   police_station: '#60a5fa',
   hospital: '#fb923c',
+  school: '#a3e635',
+  university: '#c084fc',
+  bus_stop: '#fde68a',
+  train_station: '#94a3b8',
 };
 
 export default function Minimap({ gameState }: Props) {
@@ -43,7 +47,6 @@ export default function Minimap({ gameState }: Props) {
     ctx.fillRect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE);
 
     const cellSize = MINIMAP_SIZE / gameState.gridSize;
-
     for (let y = 0; y < gameState.gridSize; y++) {
       for (let x = 0; x < gameState.gridSize; x++) {
         const tile = gameState.grid[y][x];
