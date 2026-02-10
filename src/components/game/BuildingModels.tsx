@@ -1,7 +1,8 @@
-import { useRef } from 'react';
+import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { TileType } from '@/types/game';
+import { TileType, Tile } from '@/types/game';
+import { getRoadVariant, RoadVariant } from '@/lib/trafficLights';
 
 export const TERRAIN_SET = new Set<TileType>(['grass', 'water', 'sand', 'forest']);
 
@@ -162,6 +163,155 @@ function ServiceBuilding({ color, height, width = 0.55 }: { color: string; heigh
   );
 }
 
+/** Procedural road piece that adapts to neighbors */
+function RoadPiece({ variant }: { variant: RoadVariant }) {
+  const roadColor = '#37474f';
+  const lineColor = '#78909c';
+  const sidewalkColor = '#9e9e9e';
+
+  // Base road surface
+  const basePlane = (
+    <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[0.96, 0.96]} />
+      <meshLambertMaterial color={roadColor} />
+    </mesh>
+  );
+
+  // Sidewalk borders based on variant
+  const sidewalks: JSX.Element[] = [];
+  const lines: JSX.Element[] = [];
+  const sw = 0.08; // sidewalk width
+  const half = 0.48;
+
+  // Determine which sides have sidewalks (sides without road connections)
+  const { n, s, e, w } = variantToConnections(variant);
+
+  if (!n) sidewalks.push(
+    <mesh key="sw-n" position={[0, 0.025, -half + sw / 2]} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[0.96, sw]} />
+      <meshLambertMaterial color={sidewalkColor} />
+    </mesh>
+  );
+  if (!s) sidewalks.push(
+    <mesh key="sw-s" position={[0, 0.025, half - sw / 2]} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[0.96, sw]} />
+      <meshLambertMaterial color={sidewalkColor} />
+    </mesh>
+  );
+  if (!w) sidewalks.push(
+    <mesh key="sw-w" position={[-half + sw / 2, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[sw, 0.96]} />
+      <meshLambertMaterial color={sidewalkColor} />
+    </mesh>
+  );
+  if (!e) sidewalks.push(
+    <mesh key="sw-e" position={[half - sw / 2, 0.025, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[sw, 0.96]} />
+      <meshLambertMaterial color={sidewalkColor} />
+    </mesh>
+  );
+
+  // Center line markings for straight roads
+  if (variant === 'straight_ns') {
+    lines.push(
+      <mesh key="cl" position={[0, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.02, 0.3]} />
+        <meshBasicMaterial color={lineColor} />
+      </mesh>
+    );
+    lines.push(
+      <mesh key="cl2" position={[0, 0.018, 0.3]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.02, 0.15]} />
+        <meshBasicMaterial color={lineColor} />
+      </mesh>
+    );
+  } else if (variant === 'straight_ew') {
+    lines.push(
+      <mesh key="cl" position={[0, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.3, 0.02]} />
+        <meshBasicMaterial color={lineColor} />
+      </mesh>
+    );
+    lines.push(
+      <mesh key="cl2" position={[0.3, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.15, 0.02]} />
+        <meshBasicMaterial color={lineColor} />
+      </mesh>
+    );
+  }
+
+  // Stop lines at intersections
+  if (variant === 'cross' || variant.startsWith('t_')) {
+    // Add crosswalk markings
+    if (n) lines.push(
+      <mesh key="cw-n" position={[0, 0.018, -0.32]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.5, 0.04]} />
+        <meshBasicMaterial color="#ffffff" opacity={0.6} transparent />
+      </mesh>
+    );
+    if (s) lines.push(
+      <mesh key="cw-s" position={[0, 0.018, 0.32]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.5, 0.04]} />
+        <meshBasicMaterial color="#ffffff" opacity={0.6} transparent />
+      </mesh>
+    );
+    if (e) lines.push(
+      <mesh key="cw-e" position={[0.32, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.04, 0.5]} />
+        <meshBasicMaterial color="#ffffff" opacity={0.6} transparent />
+      </mesh>
+    );
+    if (w) lines.push(
+      <mesh key="cw-w" position={[-0.32, 0.018, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.04, 0.5]} />
+        <meshBasicMaterial color="#ffffff" opacity={0.6} transparent />
+      </mesh>
+    );
+  }
+
+  // Corner pieces - add curved line
+  if (variant.startsWith('corner_')) {
+    const cx = (variant.includes('e') ? 1 : -1) * 0.12;
+    const cz = (variant.includes('s') ? 1 : -1) * 0.12;
+    lines.push(
+      <mesh key="corner-dot" position={[cx, 0.018, cz]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.04, 8]} />
+        <meshBasicMaterial color={lineColor} />
+      </mesh>
+    );
+  }
+
+  return (
+    <group>
+      {basePlane}
+      {sidewalks}
+      {lines}
+    </group>
+  );
+}
+
+/** Convert variant name to connection booleans */
+function variantToConnections(variant: RoadVariant): { n: boolean; s: boolean; e: boolean; w: boolean } {
+  switch (variant) {
+    case 'straight_ns': return { n: true, s: true, e: false, w: false };
+    case 'straight_ew': return { n: false, s: false, e: true, w: true };
+    case 'corner_ne': return { n: true, s: false, e: true, w: false };
+    case 'corner_nw': return { n: true, s: false, e: false, w: true };
+    case 'corner_se': return { n: false, s: true, e: true, w: false };
+    case 'corner_sw': return { n: false, s: true, e: false, w: true };
+    case 't_n': return { n: true, s: false, e: true, w: true }; // T missing south
+    case 't_s': return { n: false, s: true, e: true, w: true }; // T missing north
+    case 't_e': return { n: true, s: true, e: true, w: false }; // T missing west
+    case 't_w': return { n: true, s: true, e: false, w: true }; // T missing east
+    case 'cross': return { n: true, s: true, e: true, w: true };
+    case 'dead_n': return { n: true, s: false, e: false, w: false };
+    case 'dead_s': return { n: false, s: true, e: false, w: false };
+    case 'dead_e': return { n: false, s: false, e: true, w: false };
+    case 'dead_w': return { n: false, s: false, e: false, w: true };
+    default: return { n: false, s: false, e: false, w: false };
+  }
+}
+
 function Road() {
   return (
     <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -231,7 +381,7 @@ function TrainStation() {
   );
 }
 
-export function BuildingModel({ type, level, footprintW = 1, footprintH = 1 }: { type: TileType; level: number; footprintW?: number; footprintH?: number }) {
+export function BuildingModel({ type, level, footprintW = 1, footprintH = 1, roadVariant }: { type: TileType; level: number; footprintW?: number; footprintH?: number; roadVariant?: RoadVariant }) {
   const h = Math.max(0.3, level * 0.25);
   // Scale factor so multi-tile buildings fill their footprint
   const scaleX = footprintW;
@@ -240,7 +390,7 @@ export function BuildingModel({ type, level, footprintW = 1, footprintH = 1 }: {
 
   const inner = (() => {
     switch (type) {
-      case 'road': return <Road />;
+      case 'road': return <RoadPiece variant={roadVariant || 'single'} />;
       case 'park':
         return (
           <group>
