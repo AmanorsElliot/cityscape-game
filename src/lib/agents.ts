@@ -1,14 +1,13 @@
 import { Agent, Tile, TileType } from '@/types/game';
 
 const AGENT_COLORS = {
-  car: ['#ef4444', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#f97316', '#06b6d4', '#ec4899'],
+  car: ['#ef4444', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#f97316', '#06b6d4', '#ec4899', '#ffffff', '#1e293b'],
   bus: ['#fbbf24', '#22c55e'],
   pedestrian: ['#d4d4d8', '#a3a3a3', '#fca5a5', '#93c5fd', '#86efac'],
 };
 
 let nextId = 0;
 
-// Find road tiles
 function findRoads(grid: Tile[][], size: number): { x: number; y: number }[] {
   const roads: { x: number; y: number }[] = [];
   for (let y = 0; y < size; y++) {
@@ -19,7 +18,6 @@ function findRoads(grid: Tile[][], size: number): { x: number; y: number }[] {
   return roads;
 }
 
-// Simple BFS to find a random path along roads
 function findRandomPath(grid: Tile[][], size: number, start: { x: number; y: number }, maxLen: number): { x: number; y: number }[] {
   const path = [start];
   const visited = new Set<string>();
@@ -40,7 +38,15 @@ function findRandomPath(grid: Tile[][], size: number, start: { x: number; y: num
     });
 
     if (dirs.length === 0) break;
-    const next = dirs[Math.floor(Math.random() * dirs.length)];
+    // Prefer continuing in the same direction for smoother paths
+    let next: { x: number; y: number };
+    if (path.length >= 2 && Math.random() < 0.6) {
+      const prevDir = { x: current.x - path[path.length - 2].x, y: current.y - path[path.length - 2].y };
+      const straight = dirs.find(d => d.x - current.x === prevDir.x && d.y - current.y === prevDir.y);
+      next = straight || dirs[Math.floor(Math.random() * dirs.length)];
+    } else {
+      next = dirs[Math.floor(Math.random() * dirs.length)];
+    }
     visited.add(`${next.x},${next.y}`);
     path.push(next);
     current = next;
@@ -53,23 +59,20 @@ export function spawnAgents(grid: Tile[][], size: number, existingAgents: Agent[
   const roads = findRoads(grid, size);
   if (roads.length < 2) return existingAgents;
 
-  // Target agent count based on population and roads
-  const targetCount = Math.min(80, Math.floor(population / 40) + Math.floor(roads.length / 8));
+  const targetCount = Math.min(120, Math.floor(population / 30) + Math.floor(roads.length / 6));
 
-  // Remove dead agents (those that finished their path)
+  // Remove dead agents
   let agents = existingAgents.filter(a => a.pathIndex < a.path.length - 1);
 
-  // Spawn new ones
   while (agents.length < targetCount) {
     const startRoad = roads[Math.floor(Math.random() * roads.length)];
-    const path = findRandomPath(grid, size, startRoad, 8 + Math.floor(Math.random() * 12));
+    const path = findRandomPath(grid, size, startRoad, 10 + Math.floor(Math.random() * 15));
     if (path.length < 2) continue;
 
-    // Determine type
     let type: 'car' | 'bus' | 'pedestrian' = 'car';
     const roll = Math.random();
-    if (roll < 0.15) type = 'bus';
-    else if (roll < 0.35) type = 'pedestrian';
+    if (roll < 0.12) type = 'bus';
+    else if (roll < 0.30) type = 'pedestrian';
 
     const colors = AGENT_COLORS[type];
     agents.push({
@@ -83,7 +86,7 @@ export function spawnAgents(grid: Tile[][], size: number, existingAgents: Agent[
       color: colors[Math.floor(Math.random() * colors.length)],
       path,
       pathIndex: 0,
-      speed: type === 'car' ? 0.03 + Math.random() * 0.02 : type === 'bus' ? 0.02 : 0.015,
+      speed: type === 'car' ? 0.025 + Math.random() * 0.015 : type === 'bus' ? 0.018 : 0.012,
     });
   }
 
@@ -98,7 +101,6 @@ export function updateAgents(agents: Agent[], speedMultiplier: number): Agent[] 
     if (a.progress >= 1) {
       a.pathIndex++;
       if (a.pathIndex >= a.path.length - 1) {
-        // Agent reached end; will be cleaned up next spawn
         a.progress = 1;
         return a;
       }

@@ -55,7 +55,7 @@ export function calculatePopulationDensity(grid: Tile[][], size: number): number
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const tile = grid[y][x];
-      if (tile.type === 'residential') {
+      if (tile.type.startsWith('residential')) {
         const density = tile.level * 0.33;
         applyRadialCoverage(map, x, y, 3, size);
         map[y][x] = Math.min(1, density);
@@ -105,7 +105,7 @@ export function calculateHappinessMap(grid: Tile[][], coverage: ServiceCoverage,
   const map = createEmptyMap(size);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      if (grid[y][x].type !== 'residential') continue;
+      if (!grid[y][x].type.startsWith('residential')) continue;
       let h = 0.35;
       h += coverage.fire[y][x] * 0.12;
       h += coverage.police[y][x] * 0.12;
