@@ -111,3 +111,34 @@
     border-color: hsl(var(--primary));
   }
 }
+
+/* Safe area insets for mobile notch/home indicator */
+.safe-area-inset {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.top-safe {
+  top: max(0.75rem, env(safe-area-inset-top));
+}
+
+.bottom-safe-bottom {
+  bottom: max(1rem, env(safe-area-inset-bottom, 1rem));
+}
+
+/* Hide scrollbar for mobile toolbar */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Touch-friendly tap targets */
+.touch-manipulation {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
