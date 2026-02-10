@@ -7,7 +7,7 @@ import {
 } from '@/types/game';
 import { BuildingModel, TERRAIN_SET } from './BuildingModels';
 import { getFootprint } from '@/hooks/useGameState';
-import { getRoadVariant, RoadVariant, TrafficLight } from '@/lib/trafficLights';
+import { getRoadVariant, getRailVariant, RoadVariant, RailVariant, TrafficLight } from '@/lib/trafficLights';
 import { VehicleModelComponent } from './VehicleModels';
 import { NatureLayer, HomelessCamps } from './NatureModels';
 
@@ -467,15 +467,19 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
 
   // Collect buildings (only anchor tiles, not secondary tiles)
   const buildings = useMemo(() => {
-    const result: { x: number; z: number; type: TileType; level: number; key: string; fw: number; fh: number; roadVariant?: RoadVariant }[] = [];
+    const result: { x: number; z: number; type: TileType; level: number; key: string; fw: number; fh: number; roadVariant?: RoadVariant; railVariant?: RailVariant }[] = [];
     for (let z = 0; z < gridSize; z++) {
       for (let x = 0; x < gridSize; x++) {
         const tile = gameState.grid[z][x];
         if (!TERRAIN_SET.has(tile.type) && tile.anchorX === undefined) {
           // For roads, compute connectivity variant
           let rv: RoadVariant | undefined;
+          let rlv: RailVariant | undefined;
           if (tile.type === 'road') {
             rv = getRoadVariant(gameState.grid, x, z, gridSize);
+          }
+          if (tile.type === 'rail') {
+            rlv = getRailVariant(gameState.grid, x, z, gridSize);
           }
 
           const size = TILE_SIZE[tile.type] || [1, 1];
@@ -497,7 +501,7 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
             fw = maxDx + 1;
             fh = maxDy + 1;
           }
-          result.push({ x, z, type: tile.type, level: tile.level, key: `${x}-${z}`, fw, fh, roadVariant: rv });
+          result.push({ x, z, type: tile.type, level: tile.level, key: `${x}-${z}`, fw, fh, roadVariant: rv, railVariant: rlv });
         }
       }
     }
@@ -540,7 +544,7 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
       {/* Buildings - position at center of footprint */}
       {buildings.map(b => (
         <group key={b.key} position={[b.x + b.fw / 2, 0, b.z + b.fh / 2]}>
-          <BuildingModel type={b.type} level={b.level} x={b.x} z={b.z} footprintW={b.fw} footprintH={b.fh} roadVariant={b.roadVariant} />
+          <BuildingModel type={b.type} level={b.level} x={b.x} z={b.z} footprintW={b.fw} footprintH={b.fh} roadVariant={b.roadVariant} railVariant={b.railVariant} />
         </group>
       ))}
 

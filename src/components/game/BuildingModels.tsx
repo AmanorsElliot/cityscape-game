@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useGLTF } from '@react-three/drei';
 import { TileType } from '@/types/game';
-import { RoadVariant } from '@/lib/trafficLights';
+import { RoadVariant, RailVariant } from '@/lib/trafficLights';
 import { GLBModel, pickVariant } from './GLBModel';
 
 export const TERRAIN_SET = new Set<TileType>(['grass', 'water', 'sand', 'forest']);
@@ -103,6 +103,26 @@ function roadModelAndRotation(variant: RoadVariant): { url: string; rotation: nu
     case 'dead_e': return { url: '/models/roads/road-end.glb', rotation: 0 };
     case 'dead_w': return { url: '/models/roads/road-end.glb', rotation: Math.PI };
     default: return { url: '/models/roads/road-straight.glb', rotation: 0 };
+  }
+}
+
+// --- Rail variant → model + rotation ---
+
+function railModelAndRotation(variant: RailVariant): { url: string; rotation: number } {
+  const R = Math.PI / 2;
+  switch (variant) {
+    case 'straight_ns': return { url: '/models/trains/railroad-rail-straight.glb', rotation: R };
+    case 'straight_ew': return { url: '/models/trains/railroad-rail-straight.glb', rotation: 0 };
+    case 'curve_ne': return { url: '/models/trains/railroad-rail-curve.glb', rotation: Math.PI };
+    case 'curve_nw': return { url: '/models/trains/railroad-rail-curve.glb', rotation: -R };
+    case 'curve_se': return { url: '/models/trains/railroad-rail-curve.glb', rotation: R };
+    case 'curve_sw': return { url: '/models/trains/railroad-rail-curve.glb', rotation: 0 };
+    case 'dead_n': return { url: '/models/trains/railroad-rail-straight.glb', rotation: R };
+    case 'dead_s': return { url: '/models/trains/railroad-rail-straight.glb', rotation: R };
+    case 'dead_e': return { url: '/models/trains/railroad-rail-straight.glb', rotation: 0 };
+    case 'dead_w': return { url: '/models/trains/railroad-rail-straight.glb', rotation: 0 };
+    case 'single': return { url: '/models/trains/railroad-rail-straight.glb', rotation: 0 };
+    default: return { url: '/models/trains/railroad-rail-straight.glb', rotation: 0 };
   }
 }
 
@@ -251,9 +271,9 @@ function TrainStation() {
 
 // --- Main Building Model ---
 
-export function BuildingModel({ type, level, x = 0, z = 0, footprintW = 1, footprintH = 1, roadVariant }: {
+export function BuildingModel({ type, level, x = 0, z = 0, footprintW = 1, footprintH = 1, roadVariant, railVariant }: {
   type: TileType; level: number; x?: number; z?: number;
-  footprintW?: number; footprintH?: number; roadVariant?: RoadVariant;
+  footprintW?: number; footprintH?: number; roadVariant?: RoadVariant; railVariant?: RailVariant;
 }) {
   const scaleX = footprintW;
   const scaleZ = footprintH;
@@ -264,6 +284,12 @@ export function BuildingModel({ type, level, x = 0, z = 0, footprintW = 1, footp
       // --- GLB Roads ---
       case 'road': {
         const { url, rotation } = roadModelAndRotation(roadVariant || 'straight_ns');
+        return <GLBModel url={url} scale={1} rotationY={rotation} />;
+      }
+
+      // --- GLB Rails ---
+      case 'rail': {
+        const { url, rotation } = railModelAndRotation(railVariant || 'straight_ns');
         return <GLBModel url={url} scale={1} rotationY={rotation} />;
       }
 
@@ -349,6 +375,8 @@ export function BuildingModel({ type, level, x = 0, z = 0, footprintW = 1, footp
   '/models/roads/road-crossroad.glb',
   '/models/roads/road-intersection.glb',
   '/models/roads/road-end.glb',
+  '/models/trains/railroad-rail-straight.glb',
+  '/models/trains/railroad-rail-curve.glb',
   ...RESIDENTIAL_LOW.slice(0, 3),
   ...COMMERCIAL_LOW.slice(0, 2),
   ...INDUSTRIAL_LOW.slice(0, 2),

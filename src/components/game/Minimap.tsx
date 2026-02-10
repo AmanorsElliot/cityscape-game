@@ -12,7 +12,7 @@ const MINIMAP_COLORS: Record<TileType, string> = {
   residential: '#4ade80', commercial: '#60a5fa', industrial: '#fbbf24',
   residential_md: '#34d399', commercial_md: '#818cf8', industrial_md: '#fb923c',
   residential_hi: '#2dd4bf', commercial_hi: '#a78bfa', industrial_hi: '#f87171',
-  road: '#64748b', park: '#34d399',
+  road: '#64748b', park: '#34d399', rail: '#57534e',
   water: '#2563eb', sand: '#e8d5a3', forest: '#1a5c1a',
   power_coal: '#6b7280', power_oil: '#78716c', power_wind: '#bae6fd',
   power_solar: '#fde047', power_nuclear: '#bef264',
