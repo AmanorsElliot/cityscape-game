@@ -1,8 +1,17 @@
-import { useState, useCallback, useEffect } from 'react';
-import { GameState, Tile, TileType, Resources, RCIDemand, TILE_COSTS } from '@/types/game';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  GameState, Tile, TileType, Resources, RCIDemand, BudgetEntry,
+  TILE_COSTS, TILE_MAINTENANCE, SERVICE_CAPACITY, OverlayType,
+} from '@/types/game';
 import { generateTerrain } from '@/lib/terrainGen';
+import { calculateServiceCoverage } from '@/lib/serviceCoverage';
 
 const GRID_SIZE = 64;
+const MAX_BUDGET_HISTORY = 100;
+
+function emptyServiceMap(size: number): number[][] {
+  return Array.from({ length: size }, () => Array(size).fill(0));
+}
 
 const initialResources: Resources = {
   money: 15000,
@@ -10,13 +19,19 @@ const initialResources: Resources = {
   happiness: 75,
   power: 0,
   maxPower: 0,
+  waterSupply: 0,
+  maxWaterSupply: 0,
+  sewageCapacity: 0,
+  maxSewageCapacity: 0,
   demand: { residential: 0.5, commercial: 0, industrial: 0 },
 };
 
-function calculateRCIDemand(grid: Tile[][]): RCIDemand {
+function calculateRCIDemand(grid: Tile[][], coverage: ReturnType<typeof calculateServiceCoverage>): RCIDemand {
   let R = 0, C = 0, I = 0;
   let totalRLevel = 0, totalCLevel = 0, totalILevel = 0;
   let roadCount = 0, parkCount = 0, powerCount = 0;
+  let waterPumpCount = 0, sewageCount = 0;
+  let serviceCount = 0;
 
   for (const row of grid) {
     for (const tile of row) {
@@ -27,6 +42,9 @@ function calculateRCIDemand(grid: Tile[][]): RCIDemand {
         case 'road': roadCount++; break;
         case 'park': parkCount++; break;
         case 'power': powerCount++; break;
+        case 'water_pump': waterPumpCount++; break;
+        case 'sewage': sewageCount++; break;
+        case 'fire_station': case 'police_station': case 'hospital': serviceCount++; break;
       }
     }
   }
@@ -36,51 +54,28 @@ function calculateRCIDemand(grid: Tile[][]): RCIDemand {
   const cRatio = C / total;
   const iRatio = I / total;
 
-  // Target ratios: R=50%, C=30%, I=20%
-  // Demand = how much more is needed (positive = high demand)
   let rDemand = 0.5 - rRatio;
   let cDemand = 0.3 - cRatio;
   let iDemand = 0.2 - iRatio;
 
-  // Jobs drive residential demand: commercial and industrial create jobs
   const jobs = C * 20 + I * 30 + totalCLevel * 10 + totalILevel * 15;
   const workers = R * 15 + totalRLevel * 10;
-  if (jobs > workers) rDemand += 0.2; // need more workers
-  if (workers > jobs * 1.5) {
-    cDemand += 0.15; // need more jobs
-    iDemand += 0.1;
-  }
+  if (jobs > workers) rDemand += 0.2;
+  if (workers > jobs * 1.5) { cDemand += 0.15; iDemand += 0.1; }
 
-  // Commercial demand increases with population
   const population = R * 50 + totalRLevel * 30;
   if (population > 200 && C < R * 0.4) cDemand += 0.2;
-
-  // Industrial demand: base need for economy
   if (I === 0 && R > 3) iDemand += 0.3;
   if (population > 500 && I < R * 0.25) iDemand += 0.15;
 
-  // Infrastructure bonuses
-  if (roadCount < total * 0.3) {
-    // Poor road coverage suppresses all demand slightly
-    rDemand *= 0.8;
-    cDemand *= 0.8;
-    iDemand *= 0.8;
-  }
-  if (powerCount === 0 && total > 5) {
-    rDemand *= 0.5;
-    cDemand *= 0.5;
-    iDemand *= 0.5;
-  }
-
-  // Parks boost residential demand
+  // Infrastructure effects on demand
+  if (roadCount < total * 0.3) { rDemand *= 0.8; cDemand *= 0.8; iDemand *= 0.8; }
+  if (powerCount === 0 && total > 5) { rDemand *= 0.5; cDemand *= 0.5; iDemand *= 0.5; }
+  if (waterPumpCount === 0 && total > 8) { rDemand *= 0.6; cDemand *= 0.6; }
+  if (serviceCount > 0) { rDemand += 0.1; cDemand += 0.05; }
   if (parkCount > 0) rDemand += Math.min(0.15, parkCount * 0.03);
 
-  // Starting demand when empty
-  if (total <= 1) {
-    rDemand = 0.6;
-    cDemand = 0.1;
-    iDemand = 0.1;
-  }
+  if (total <= 1) { rDemand = 0.6; cDemand = 0.1; iDemand = 0.1; }
 
   return {
     residential: Math.max(-1, Math.min(1, rDemand)),
@@ -89,15 +84,24 @@ function calculateRCIDemand(grid: Tile[][]): RCIDemand {
   };
 }
 
-export function useGameState() {
-  const [gameState, setGameState] = useState<GameState>(() => ({
-    grid: generateTerrain(GRID_SIZE),
+function createInitialState(): GameState {
+  const grid = generateTerrain(GRID_SIZE);
+  const coverage = calculateServiceCoverage(grid, GRID_SIZE);
+  return {
+    grid,
     resources: initialResources,
     selectedTool: 'residential',
     tick: 0,
     speed: 1,
     gridSize: GRID_SIZE,
-  }));
+    coverage,
+    budgetHistory: [],
+    overlay: 'none',
+  };
+}
+
+export function useGameState() {
+  const [gameState, setGameState] = useState<GameState>(createInitialState);
 
   const selectTool = useCallback((tool: TileType | 'bulldoze') => {
     setGameState(prev => ({ ...prev, selectedTool: tool }));
@@ -107,13 +111,15 @@ export function useGameState() {
     setGameState(prev => ({ ...prev, speed }));
   }, []);
 
+  const setOverlay = useCallback((overlay: OverlayType) => {
+    setGameState(prev => ({ ...prev, overlay }));
+  }, []);
+
   const placeTile = useCallback((x: number, y: number) => {
     setGameState(prev => {
       const tool = prev.selectedTool;
       const currentTile = prev.grid[y]?.[x];
       if (!currentTile) return prev;
-
-      // Can't build on water
       if (currentTile.type === 'water') return prev;
 
       if (tool === 'bulldoze') {
@@ -121,14 +127,13 @@ export function useGameState() {
         if (prev.resources.money < TILE_COSTS.bulldoze) return prev;
         const newGrid = prev.grid.map(row => row.map(t => ({ ...t })));
         newGrid[y][x] = { ...newGrid[y][x], type: 'grass', level: 0 };
+        const coverage = calculateServiceCoverage(newGrid, GRID_SIZE);
         return {
-          ...prev,
-          grid: newGrid,
-          resources: { ...prev.resources, money: prev.resources.money - TILE_COSTS.bulldoze },
+          ...prev, grid: newGrid, coverage,
+          resources: { ...prev.resources, money: prev.resources.money - TILE_COSTS.bulldoze, demand: calculateRCIDemand(newGrid, coverage) },
         };
       }
 
-      // Can only build on grass, sand, forest
       if (!['grass', 'sand', 'forest'].includes(currentTile.type)) return prev;
       const cost = TILE_COSTS[tool];
       if (prev.resources.money < cost) return prev;
@@ -137,14 +142,14 @@ export function useGameState() {
       newGrid[y][x] = { ...newGrid[y][x], type: tool, level: 1 };
 
       const newResources = { ...prev.resources, money: prev.resources.money - cost };
-      if (tool === 'power') {
-        newResources.maxPower += 100;
-      }
+      if (tool === 'power') newResources.maxPower += 100;
+      if (tool === 'water_pump') newResources.maxWaterSupply += (SERVICE_CAPACITY.water_pump || 150);
+      if (tool === 'sewage') newResources.maxSewageCapacity += (SERVICE_CAPACITY.sewage || 120);
 
-      // Recalculate demand after placement
-      newResources.demand = calculateRCIDemand(newGrid);
+      const coverage = calculateServiceCoverage(newGrid, GRID_SIZE);
+      newResources.demand = calculateRCIDemand(newGrid, coverage);
 
-      return { ...prev, grid: newGrid, resources: newResources };
+      return { ...prev, grid: newGrid, resources: newResources, coverage };
     });
   }, []);
 
@@ -155,40 +160,50 @@ export function useGameState() {
     const interval = setInterval(() => {
       setGameState(prev => {
         const newTick = prev.tick + 1;
-        let { money, population, happiness, power, maxPower } = prev.resources;
+        let { money, population, happiness, power, maxPower, waterSupply, maxWaterSupply, sewageCapacity, maxSewageCapacity } = prev.resources;
+        const demand = prev.resources.demand;
 
-        let residentialCount = 0, commercialCount = 0, industrialCount = 0;
+        let rCount = 0, cCount = 0, iCount = 0;
         let parkCount = 0, roadCount = 0, powerPlantCount = 0;
         let totalRLevel = 0, totalCLevel = 0, totalILevel = 0;
-
-        const demand = prev.resources.demand;
+        let waterPumpCount = 0, sewageCount = 0;
+        let fireCount = 0, policeCount = 0, hospitalCount = 0;
 
         const newGrid = prev.grid.map(row =>
           row.map(tile => {
             const t = { ...tile };
             switch (t.type) {
-              case 'residential': residentialCount++; totalRLevel += t.level; break;
-              case 'commercial': commercialCount++; totalCLevel += t.level; break;
-              case 'industrial': industrialCount++; totalILevel += t.level; break;
+              case 'residential': rCount++; totalRLevel += t.level; break;
+              case 'commercial': cCount++; totalCLevel += t.level; break;
+              case 'industrial': iCount++; totalILevel += t.level; break;
               case 'park': parkCount++; break;
               case 'road': roadCount++; break;
               case 'power': powerPlantCount++; break;
+              case 'water_pump': waterPumpCount++; break;
+              case 'sewage': sewageCount++; break;
+              case 'fire_station': fireCount++; break;
+              case 'police_station': policeCount++; break;
+              case 'hospital': hospitalCount++; break;
             }
 
-            // Growth based on demand — tiles only grow if demand is positive
+            // Growth based on demand + service coverage
             if (newTick % 8 === 0 && t.level > 0 && t.level < 3) {
+              const cov = prev.coverage;
+              const svcBonus = (cov.fire[t.y]?.[t.x] || 0) * 0.1 +
+                (cov.police[t.y]?.[t.x] || 0) * 0.1 +
+                (cov.waterSupply[t.y]?.[t.x] || 0) * 0.15;
+
               if (t.type === 'residential' && demand.residential > 0.1) {
-                if (Math.random() < 0.12 * demand.residential) t.level = Math.min(3, t.level + 1);
+                if (Math.random() < (0.1 + svcBonus) * demand.residential) t.level = Math.min(3, t.level + 1);
               }
               if (t.type === 'commercial' && demand.commercial > 0.1) {
-                if (Math.random() < 0.10 * demand.commercial) t.level = Math.min(3, t.level + 1);
+                if (Math.random() < (0.08 + svcBonus) * demand.commercial) t.level = Math.min(3, t.level + 1);
               }
               if (t.type === 'industrial' && demand.industrial > 0.1) {
-                if (Math.random() < 0.10 * demand.industrial) t.level = Math.min(3, t.level + 1);
+                if (Math.random() < (0.08 + svcBonus * 0.5) * demand.industrial) t.level = Math.min(3, t.level + 1);
               }
             }
 
-            // Decline: if demand is very negative, buildings can downgrade
             if (newTick % 20 === 0 && t.level > 1) {
               if (t.type === 'residential' && demand.residential < -0.3 && Math.random() < 0.1) t.level--;
               if (t.type === 'commercial' && demand.commercial < -0.3 && Math.random() < 0.1) t.level--;
@@ -199,39 +214,83 @@ export function useGameState() {
           })
         );
 
-        // Calculate resources
-        population = residentialCount * 50 + totalRLevel * 30;
+        // Resources
+        population = rCount * 50 + totalRLevel * 30;
         maxPower = powerPlantCount * 100;
-        power = residentialCount * 10 + commercialCount * 15 + industrialCount * 25;
+        power = rCount * 10 + cCount * 15 + iCount * 25;
+        maxWaterSupply = waterPumpCount * (SERVICE_CAPACITY.water_pump || 150);
+        waterSupply = rCount * 8 + cCount * 12 + iCount * 15;
+        maxSewageCapacity = sewageCount * (SERVICE_CAPACITY.sewage || 120);
+        sewageCapacity = rCount * 6 + cCount * 10 + iCount * 20;
 
-        // Income driven by commercial tax and industrial output
-        const taxIncome = commercialCount * 10 + totalCLevel * 5;
-        const industrialIncome = industrialCount * 15 + totalILevel * 8;
-        const maintenance = residentialCount * 3 + parkCount * 2 + roadCount * 1;
-        const income = taxIncome + industrialIncome - maintenance;
-        money = Math.max(0, money + income);
+        // Income
+        const taxIncome = cCount * 10 + totalCLevel * 5;
+        const industrialIncome = iCount * 15 + totalILevel * 8;
+        const totalIncome = taxIncome + industrialIncome;
 
-        // Happiness
-        const parkBonus = Math.min(25, parkCount * 4);
-        const roadBonus = Math.min(10, roadCount * 1);
-        const industrialPenalty = Math.min(20, industrialCount * 3);
+        // Expenses
+        let totalExpenses = rCount * 3;
+        for (const [type, cost] of Object.entries(TILE_MAINTENANCE)) {
+          let count = 0;
+          switch (type) {
+            case 'fire_station': count = fireCount; break;
+            case 'police_station': count = policeCount; break;
+            case 'hospital': count = hospitalCount; break;
+            case 'water_pump': count = waterPumpCount; break;
+            case 'sewage': count = sewageCount; break;
+            case 'power': count = powerPlantCount; break;
+            case 'park': count = parkCount; break;
+            case 'road': count = roadCount; break;
+          }
+          totalExpenses += count * (cost as number);
+        }
+
+        const netIncome = totalIncome - totalExpenses;
+        money = Math.max(0, money + netIncome);
+
+        // Happiness (services have major impact)
+        const parkBonus = Math.min(20, parkCount * 3);
+        const roadBonus = Math.min(8, roadCount * 0.5);
+        const industrialPenalty = Math.min(15, iCount * 2);
         const powerPenalty = power > maxPower ? 15 : 0;
-        const jobSatisfaction = commercialCount + industrialCount >= residentialCount * 0.4 ? 10 : -10;
-        happiness = Math.max(0, Math.min(100, 50 + parkBonus + roadBonus - industrialPenalty - powerPenalty + jobSatisfaction));
+        const waterPenalty = waterSupply > maxWaterSupply ? 10 : 0;
+        const sewagePenalty = sewageCapacity > maxSewageCapacity ? 8 : 0;
+        const jobSatisfaction = cCount + iCount >= rCount * 0.4 ? 8 : -8;
+        const fireBonus = Math.min(10, fireCount * 5);
+        const policeBonus = Math.min(10, policeCount * 5);
+        const healthBonus = Math.min(10, hospitalCount * 5);
 
-        // Recalculate demand
-        const newDemand = calculateRCIDemand(newGrid);
+        happiness = Math.max(0, Math.min(100,
+          45 + parkBonus + roadBonus + fireBonus + policeBonus + healthBonus + jobSatisfaction
+          - industrialPenalty - powerPenalty - waterPenalty - sewagePenalty
+        ));
+
+        // Coverage (recalculate periodically)
+        const coverage = newTick % 5 === 0 ? calculateServiceCoverage(newGrid, GRID_SIZE) : prev.coverage;
+        const newDemand = calculateRCIDemand(newGrid, coverage);
+
+        // Budget history
+        const budgetEntry: BudgetEntry = {
+          tick: newTick,
+          income: totalIncome,
+          expenses: totalExpenses,
+          balance: Math.round(money),
+        };
+        const budgetHistory = [...prev.budgetHistory, budgetEntry].slice(-MAX_BUDGET_HISTORY);
 
         return {
           ...prev,
           grid: newGrid,
           tick: newTick,
+          coverage,
+          budgetHistory,
           resources: {
             money: Math.round(money),
             population,
             happiness: Math.round(happiness),
-            power,
-            maxPower,
+            power, maxPower,
+            waterSupply, maxWaterSupply,
+            sewageCapacity, maxSewageCapacity,
             demand: newDemand,
           },
         };
@@ -242,13 +301,8 @@ export function useGameState() {
   }, [gameState.speed]);
 
   const regenerateMap = useCallback(() => {
-    setGameState(prev => ({
-      ...prev,
-      grid: generateTerrain(GRID_SIZE),
-      resources: initialResources,
-      tick: 0,
-    }));
+    setGameState(createInitialState());
   }, []);
 
-  return { gameState, placeTile, selectTool, setSpeed, regenerateMap };
+  return { gameState, placeTile, selectTool, setSpeed, regenerateMap, setOverlay };
 }

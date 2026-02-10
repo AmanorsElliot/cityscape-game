@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react';
-import { GameState, TILE_COLORS, TileType } from '@/types/game';
+import { GameState, TileType } from '@/types/game';
 
 interface Props {
   gameState: GameState;
@@ -18,6 +18,11 @@ const MINIMAP_COLORS: Record<TileType, string> = {
   water: '#2563eb',
   sand: '#e8d5a3',
   forest: '#1a5c1a',
+  water_pump: '#38bdf8',
+  sewage: '#a78bfa',
+  fire_station: '#f87171',
+  police_station: '#60a5fa',
+  hospital: '#fb923c',
 };
 
 export default function Minimap({ gameState }: Props) {
@@ -34,7 +39,6 @@ export default function Minimap({ gameState }: Props) {
     canvas.height = MINIMAP_SIZE * dpr;
     ctx.scale(dpr, dpr);
 
-    // Background
     ctx.fillStyle = 'hsl(220, 20%, 6%)';
     ctx.fillRect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE);
 
@@ -44,26 +48,12 @@ export default function Minimap({ gameState }: Props) {
       for (let x = 0; x < gameState.gridSize; x++) {
         const tile = gameState.grid[y][x];
         ctx.fillStyle = MINIMAP_COLORS[tile.type] || '#333';
-        
-        // Brighten based on level
-        if (tile.level > 1) {
-          ctx.globalAlpha = 0.7 + tile.level * 0.1;
-        } else {
-          ctx.globalAlpha = 1;
-        }
-        
-        ctx.fillRect(
-          x * cellSize,
-          y * cellSize,
-          Math.max(1, cellSize),
-          Math.max(1, cellSize)
-        );
+        if (tile.level > 1) ctx.globalAlpha = 0.7 + tile.level * 0.1;
+        else ctx.globalAlpha = 1;
+        ctx.fillRect(x * cellSize, y * cellSize, Math.max(1, cellSize), Math.max(1, cellSize));
       }
     }
-
     ctx.globalAlpha = 1;
-
-    // Border
     ctx.strokeStyle = 'hsla(175, 70%, 45%, 0.3)';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE);
@@ -71,14 +61,7 @@ export default function Minimap({ gameState }: Props) {
 
   return (
     <div className="glass-panel rounded-xl overflow-hidden">
-      <canvas
-        ref={canvasRef}
-        style={{
-          width: MINIMAP_SIZE,
-          height: MINIMAP_SIZE,
-          display: 'block',
-        }}
-      />
+      <canvas ref={canvasRef} style={{ width: MINIMAP_SIZE, height: MINIMAP_SIZE, display: 'block' }} />
     </div>
   );
 }
