@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   GameState, Tile, TileType, Resources, RCIDemand, BudgetEntry, Agent,
   TILE_COSTS, TILE_MAINTENANCE, SERVICE_CAPACITY, OverlayType, DRAGGABLE_TYPES,
+  isRCIType, getMaxLevel, isAdjacentToRoad, ZONE_TYPES,
 } from '@/types/game';
 import { generateTerrain } from '@/lib/terrainGen';
 import { calculateServiceCoverage } from '@/lib/serviceCoverage';
@@ -9,6 +10,7 @@ import { spawnAgents, updateAgents } from '@/lib/agents';
 
 const GRID_SIZE = 64;
 const MAX_BUDGET_HISTORY = 100;
+const DAY_LENGTH = 240; // ticks per full day cycle
 
 const initialResources: Resources = {
   money: 15000,
@@ -23,6 +25,20 @@ const initialResources: Resources = {
   demand: { residential: 0.5, commercial: 0, industrial: 0 },
 };
 
+function countRCI(type: TileType): 'R' | 'C' | 'I' | null {
+  const rci = isRCIType(type);
+  if (rci === 'residential') return 'R';
+  if (rci === 'commercial') return 'C';
+  if (rci === 'industrial') return 'I';
+  return null;
+}
+
+function popMultiplier(type: TileType): number {
+  if (type.endsWith('_hi')) return 3;
+  if (type.endsWith('_md')) return 2;
+  return 1;
+}
+
 function calculateRCIDemand(grid: Tile[][], coverage: ReturnType<typeof calculateServiceCoverage>): RCIDemand {
   let R = 0, C = 0, I = 0;
   let totalRLevel = 0, totalCLevel = 0, totalILevel = 0;
@@ -31,17 +47,21 @@ function calculateRCIDemand(grid: Tile[][], coverage: ReturnType<typeof calculat
 
   for (const row of grid) {
     for (const tile of row) {
-      switch (tile.type) {
-        case 'residential': R++; totalRLevel += tile.level; break;
-        case 'commercial': C++; totalCLevel += tile.level; break;
-        case 'industrial': I++; totalILevel += tile.level; break;
-        case 'road': roadCount++; break;
-        case 'park': parkCount++; break;
-        case 'power': powerCount++; break;
-        case 'water_pump': waterPumpCount++; break;
-        case 'school': case 'university': eduCount++; break;
-        case 'bus_stop': case 'train_station': transportCount++; break;
-        case 'fire_station': case 'police_station': case 'hospital': case 'sewage': serviceCount++; break;
+      const rci = countRCI(tile.type);
+      const mult = popMultiplier(tile.type);
+      if (rci === 'R') { R += mult; totalRLevel += tile.level * mult; }
+      else if (rci === 'C') { C += mult; totalCLevel += tile.level * mult; }
+      else if (rci === 'I') { I += mult; totalILevel += tile.level * mult; }
+      else {
+        switch (tile.type) {
+          case 'road': roadCount++; break;
+          case 'park': parkCount++; break;
+          case 'power': powerCount++; break;
+          case 'water_pump': waterPumpCount++; break;
+          case 'school': case 'university': eduCount++; break;
+          case 'bus_stop': case 'train_station': transportCount++; break;
+          case 'fire_station': case 'police_station': case 'hospital': case 'sewage': serviceCount++; break;
+        }
       }
     }
   }
@@ -66,9 +86,7 @@ function calculateRCIDemand(grid: Tile[][], coverage: ReturnType<typeof calculat
   if (waterPumpCount === 0 && total > 8) { rDemand *= 0.6; cDemand *= 0.6; }
   if (serviceCount > 0) { rDemand += 0.1; cDemand += 0.05; }
   if (parkCount > 0) rDemand += Math.min(0.15, parkCount * 0.03);
-  // Education boosts all demand
   if (eduCount > 0) { rDemand += 0.1; cDemand += 0.1; }
-  // Transport boosts commercial
   if (transportCount > 0) { cDemand += Math.min(0.15, transportCount * 0.04); }
 
   if (total <= 1) { rDemand = 0.6; cDemand = 0.1; iDemand = 0.1; }
@@ -86,6 +104,7 @@ function createInitialState(): GameState {
   return {
     grid, resources: initialResources, selectedTool: 'residential',
     tick: 0, speed: 1, gridSize: GRID_SIZE, coverage, budgetHistory: [], overlay: 'none', agents: [],
+    timeOfDay: 0,
   };
 }
 
@@ -104,7 +123,13 @@ export function useGameState() {
     setGameState(prev => ({ ...prev, overlay }));
   }, []);
 
-  // Place a single tile
+  const canPlaceZone = useCallback((grid: Tile[][], x: number, y: number, tool: TileType): boolean => {
+    if (ZONE_TYPES.includes(tool)) {
+      return isAdjacentToRoad(grid, x, y, GRID_SIZE);
+    }
+    return true;
+  }, []);
+
   const placeTile = useCallback((x: number, y: number) => {
     setGameState(prev => {
       const tool = prev.selectedTool;
@@ -127,6 +152,7 @@ export function useGameState() {
       if (!['grass', 'sand', 'forest'].includes(currentTile.type)) return prev;
       const cost = TILE_COSTS[tool];
       if (prev.resources.money < cost) return prev;
+      if (!canPlaceZone(prev.grid, x, y, tool)) return prev;
 
       const newGrid = prev.grid.map(row => row.map(t => ({ ...t })));
       newGrid[y][x] = { ...newGrid[y][x], type: tool, level: 1 };
@@ -141,9 +167,8 @@ export function useGameState() {
 
       return { ...prev, grid: newGrid, resources: newResources, coverage };
     });
-  }, []);
+  }, [canPlaceZone]);
 
-  // Place tiles along a line (for drag placement)
   const placeTileLine = useCallback((tiles: { x: number; y: number }[]) => {
     setGameState(prev => {
       const tool = prev.selectedTool;
@@ -166,6 +191,8 @@ export function useGameState() {
           if (!['grass', 'sand', 'forest'].includes(currentTile.type)) continue;
           const cost = TILE_COSTS[tool];
           if (money < cost) continue;
+          // For zones, check road adjacency (but for roads placed in the same drag, check the updated grid)
+          if (ZONE_TYPES.includes(tool) && !isAdjacentToRoad(newGrid, x, y, GRID_SIZE)) continue;
           newGrid[y][x] = { ...newGrid[y][x], type: tool, level: 1 };
           money -= cost;
           changed = true;
@@ -187,6 +214,7 @@ export function useGameState() {
     const interval = setInterval(() => {
       setGameState(prev => {
         const newTick = prev.tick + 1;
+        const timeOfDay = (prev.timeOfDay + 1) % DAY_LENGTH;
         let { money, population, happiness, power, maxPower, waterSupply, maxWaterSupply, sewageCapacity, maxSewageCapacity } = prev.resources;
         const demand = prev.resources.demand;
 
@@ -200,47 +228,54 @@ export function useGameState() {
         const newGrid = prev.grid.map(row =>
           row.map(tile => {
             const t = { ...tile };
-            switch (t.type) {
-              case 'residential': rCount++; totalRLevel += t.level; break;
-              case 'commercial': cCount++; totalCLevel += t.level; break;
-              case 'industrial': iCount++; totalILevel += t.level; break;
-              case 'park': parkCount++; break;
-              case 'road': roadCount++; break;
-              case 'power': powerPlantCount++; break;
-              case 'water_pump': waterPumpCount++; break;
-              case 'sewage': sewageCount++; break;
-              case 'fire_station': fireCount++; break;
-              case 'police_station': policeCount++; break;
-              case 'hospital': hospitalCount++; break;
-              case 'school': schoolCount++; break;
-              case 'university': uniCount++; break;
-              case 'bus_stop': busCount++; break;
-              case 'train_station': trainCount++; break;
+            const rci = countRCI(t.type);
+            const mult = popMultiplier(t.type);
+            if (rci === 'R') { rCount += mult; totalRLevel += t.level * mult; }
+            else if (rci === 'C') { cCount += mult; totalCLevel += t.level * mult; }
+            else if (rci === 'I') { iCount += mult; totalILevel += t.level * mult; }
+            else {
+              switch (t.type) {
+                case 'park': parkCount++; break;
+                case 'road': roadCount++; break;
+                case 'power': powerPlantCount++; break;
+                case 'water_pump': waterPumpCount++; break;
+                case 'sewage': sewageCount++; break;
+                case 'fire_station': fireCount++; break;
+                case 'police_station': policeCount++; break;
+                case 'hospital': hospitalCount++; break;
+                case 'school': schoolCount++; break;
+                case 'university': uniCount++; break;
+                case 'bus_stop': busCount++; break;
+                case 'train_station': trainCount++; break;
+              }
             }
 
-            if (newTick % 8 === 0 && t.level > 0 && t.level < 3) {
-              const cov = prev.coverage;
-              const svcBonus = (cov.fire[t.y]?.[t.x] || 0) * 0.08 +
-                (cov.police[t.y]?.[t.x] || 0) * 0.08 +
-                (cov.waterSupply[t.y]?.[t.x] || 0) * 0.1 +
-                (cov.education[t.y]?.[t.x] || 0) * 0.15 +
-                (cov.transport[t.y]?.[t.x] || 0) * 0.1;
+            if (newTick % 8 === 0 && t.level > 0) {
+              const maxLvl = getMaxLevel(t.type);
+              if (t.level < maxLvl) {
+                const cov = prev.coverage;
+                const svcBonus = (cov.fire[t.y]?.[t.x] || 0) * 0.08 +
+                  (cov.police[t.y]?.[t.x] || 0) * 0.08 +
+                  (cov.waterSupply[t.y]?.[t.x] || 0) * 0.1 +
+                  (cov.education[t.y]?.[t.x] || 0) * 0.15 +
+                  (cov.transport[t.y]?.[t.x] || 0) * 0.1;
 
-              if (t.type === 'residential' && demand.residential > 0.1) {
-                if (Math.random() < (0.1 + svcBonus) * demand.residential) t.level = Math.min(3, t.level + 1);
-              }
-              if (t.type === 'commercial' && demand.commercial > 0.1) {
-                if (Math.random() < (0.08 + svcBonus) * demand.commercial) t.level = Math.min(3, t.level + 1);
-              }
-              if (t.type === 'industrial' && demand.industrial > 0.1) {
-                if (Math.random() < (0.08 + svcBonus * 0.5) * demand.industrial) t.level = Math.min(3, t.level + 1);
+                if (rci === 'R' && demand.residential > 0.1) {
+                  if (Math.random() < (0.1 + svcBonus) * demand.residential) t.level = Math.min(maxLvl, t.level + 1);
+                }
+                if (rci === 'C' && demand.commercial > 0.1) {
+                  if (Math.random() < (0.08 + svcBonus) * demand.commercial) t.level = Math.min(maxLvl, t.level + 1);
+                }
+                if (rci === 'I' && demand.industrial > 0.1) {
+                  if (Math.random() < (0.08 + svcBonus * 0.5) * demand.industrial) t.level = Math.min(maxLvl, t.level + 1);
+                }
               }
             }
 
             if (newTick % 20 === 0 && t.level > 1) {
-              if (t.type === 'residential' && demand.residential < -0.3 && Math.random() < 0.1) t.level--;
-              if (t.type === 'commercial' && demand.commercial < -0.3 && Math.random() < 0.1) t.level--;
-              if (t.type === 'industrial' && demand.industrial < -0.3 && Math.random() < 0.1) t.level--;
+              if (rci === 'R' && demand.residential < -0.3 && Math.random() < 0.1) t.level--;
+              if (rci === 'C' && demand.commercial < -0.3 && Math.random() < 0.1) t.level--;
+              if (rci === 'I' && demand.industrial < -0.3 && Math.random() < 0.1) t.level--;
             }
 
             return t;
@@ -275,6 +310,7 @@ export function useGameState() {
             case 'university': count = uniCount; break;
             case 'bus_stop': count = busCount; break;
             case 'train_station': count = trainCount; break;
+            // density zones counted via rCount/cCount/iCount already
           }
           totalExpenses += count * (cost as number);
         }
@@ -314,7 +350,7 @@ export function useGameState() {
         }
 
         return {
-          ...prev, grid: newGrid, tick: newTick, coverage, budgetHistory, agents,
+          ...prev, grid: newGrid, tick: newTick, coverage, budgetHistory, agents, timeOfDay,
           resources: {
             money: Math.round(money), population, happiness: Math.round(happiness),
             power, maxPower, waterSupply, maxWaterSupply, sewageCapacity, maxSewageCapacity, demand: newDemand,
