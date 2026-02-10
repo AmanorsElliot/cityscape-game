@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { useAuth } from '@/hooks/useAuth';
 import { useGameState } from '@/hooks/useGameState';
+import { useSaveSystem } from '@/hooks/useSaveSystem';
 import IsometricCanvas from '@/components/game/IsometricCanvas';
 import Toolbar from '@/components/game/Toolbar';
 import ResourceBar from '@/components/game/ResourceBar';
@@ -8,11 +10,31 @@ import Minimap from '@/components/game/Minimap';
 import DemandMeter from '@/components/game/DemandMeter';
 import OverlaySelector from '@/components/game/OverlaySelector';
 import BudgetPanel from '@/components/game/BudgetPanel';
-import { RefreshCw, BarChart3 } from 'lucide-react';
+import MultiplayerPanel from '@/components/game/MultiplayerPanel';
+import AuthPage from '@/pages/AuthPage';
+import { RefreshCw, BarChart3, Save, Users, LogOut } from 'lucide-react';
 
 const Index = () => {
-  const { gameState, placeTile, placeTileLine, selectTool, setSpeed, regenerateMap, setOverlay } = useGameState();
+  const { user, loading, signOut } = useAuth();
+  const { gameState, placeTile, placeTileLine, selectTool, setSpeed, regenerateMap, setOverlay, loadSave } = useGameState();
   const [showBudget, setShowBudget] = useState(false);
+  const [showMultiplayer, setShowMultiplayer] = useState(false);
+
+  const handleLoadSave = useCallback((data: { grid_data: any; resources: any; tick: number; time_of_day: number }) => {
+    loadSave(data);
+  }, [loadSave]);
+
+  const { save, cityId } = useSaveSystem(user?.id, gameState, handleLoadSave);
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-background flex items-center justify-center">
+        <div className="font-display text-primary glow-text text-xl animate-pulse">LOADING...</div>
+      </div>
+    );
+  }
+
+  if (!user) return <AuthPage />;
 
   return (
     <div className="fixed inset-0 bg-background overflow-hidden flex flex-col">
@@ -29,6 +51,27 @@ const Index = () => {
           title="Budget"
         >
           <BarChart3 className="w-4 h-4" />
+        </button>
+        <button
+          onClick={save}
+          className="glass-panel rounded-xl p-2.5 text-muted-foreground hover:text-foreground transition-all"
+          title="Save"
+        >
+          <Save className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setShowMultiplayer(!showMultiplayer)}
+          className={`glass-panel rounded-xl p-2.5 transition-all ${showMultiplayer ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+          title="Multiplayer"
+        >
+          <Users className="w-4 h-4" />
+        </button>
+        <button
+          onClick={signOut}
+          className="glass-panel rounded-xl p-2.5 text-muted-foreground hover:text-foreground transition-all"
+          title="Sign out"
+        >
+          <LogOut className="w-4 h-4" />
         </button>
       </div>
 
@@ -61,6 +104,13 @@ const Index = () => {
       {showBudget && (
         <div className="absolute top-20 left-4 z-10">
           <BudgetPanel resources={gameState.resources} budgetHistory={gameState.budgetHistory} onClose={() => setShowBudget(false)} />
+        </div>
+      )}
+
+      {/* Multiplayer panel */}
+      {showMultiplayer && (
+        <div className="absolute top-20 left-4 z-10">
+          <MultiplayerPanel cityId={cityId} onClose={() => setShowMultiplayer(false)} />
         </div>
       )}
 
