@@ -10,7 +10,7 @@ export default function MobileControls({ onRotateCamera, onZoom, onRotateBuildin
   const btn = "glass-panel rounded-xl w-10 h-10 flex items-center justify-center text-muted-foreground active:bg-primary/20 active:text-primary transition-all touch-manipulation";
 
   return (
-    <div className="absolute right-2 bottom-20 z-20 flex flex-col gap-1.5 pointer-events-auto">
+    <div className="absolute right-2 bottom-24 z-20 flex flex-col gap-1.5 pointer-events-auto">
       <button className={btn} onClick={() => onZoom(4)} aria-label="Zoom in">
         <ZoomIn className="w-4 h-4" />
       </button>

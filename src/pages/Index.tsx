@@ -47,26 +47,26 @@ const Index = () => {
       </div>
 
       {/* Compact top-left: logo + key stats */}
-      <div className="absolute top-safe left-2 sm:left-3 z-10 flex items-center gap-1 sm:gap-2 flex-wrap max-w-[70vw]">
-        <div className="glass-panel rounded-xl px-2 sm:px-3 py-1 sm:py-1.5">
+      <div className="absolute top-safe left-2 sm:left-3 z-10 flex items-center gap-1 sm:gap-2 max-w-[65vw] sm:max-w-[70vw]">
+        <div className="glass-panel rounded-xl px-2 sm:px-3 py-1 sm:py-1.5 shrink-0">
           <h1 className="font-display text-[10px] sm:text-xs font-bold tracking-wider glow-text text-primary">CITYSCAPE</h1>
         </div>
         <ResourceBar resources={gameState.resources} />
       </div>
 
-      {/* Top-right: compact action buttons */}
+      {/* Top-right: compact action buttons - stacked on mobile */}
       <div className="absolute top-safe right-2 sm:right-3 z-10 flex items-center gap-1 sm:gap-1.5">
         <SpeedControls speed={gameState.speed} onSetSpeed={setSpeed} />
         <button
           onClick={() => setShowBudget(!showBudget)}
-          className={`glass-panel rounded-lg p-2 transition-all touch-manipulation ${showBudget ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`glass-panel rounded-lg p-1.5 sm:p-2 transition-all touch-manipulation ${showBudget ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
           title="Budget"
         >
           <BarChart3 className="w-3.5 h-3.5" />
         </button>
         <button
           onClick={() => setShowRightPanel(!showRightPanel)}
-          className={`glass-panel rounded-lg p-2 transition-all touch-manipulation ${showRightPanel ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`glass-panel rounded-lg p-1.5 sm:p-2 transition-all touch-manipulation ${showRightPanel ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
           title="Data overlays & demand"
         >
           <Layers className="w-3.5 h-3.5" />
@@ -89,7 +89,7 @@ const Index = () => {
           </>
         )}
         {guestMode && (
-          <button onClick={() => setGuestMode(false)} className="glass-panel rounded-lg p-2 text-muted-foreground hover:text-foreground transition-all touch-manipulation" title="Sign in">
+          <button onClick={() => setGuestMode(false)} className="glass-panel rounded-lg p-1.5 sm:p-2 text-muted-foreground hover:text-foreground transition-all touch-manipulation" title="Sign in">
             <LogOut className="w-3.5 h-3.5" />
           </button>
         )}
@@ -145,7 +145,7 @@ const Index = () => {
       )}
 
       {/* Help toggle - bottom right, above mobile controls area */}
-      <div className="absolute bottom-16 sm:bottom-4 right-14 sm:right-3 z-10">
+      <div className="absolute bottom-24 sm:bottom-4 right-14 sm:right-3 z-10">
         <button
           onClick={() => setShowHelp(!showHelp)}
           className="glass-panel rounded-lg p-2 text-muted-foreground hover:text-foreground transition-all touch-manipulation"
