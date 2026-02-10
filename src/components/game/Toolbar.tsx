@@ -1,6 +1,6 @@
 import {
   Home, Building2, Factory, Route, TreePine, Zap, Eraser,
-  Droplets, Trash2, Flame, Shield, Heart,
+  Droplets, Trash2, Flame, Shield, Heart, GraduationCap, BookOpen, Bus, TrainFront,
 } from 'lucide-react';
 import { TileType, TILE_COSTS, TILE_LABELS } from '@/types/game';
 import { useState } from 'react';
@@ -11,12 +11,11 @@ interface Props {
   money: number;
 }
 
-type ToolCategory = 'zones' | 'infra' | 'services';
+type ToolCategory = 'zones' | 'infra' | 'services' | 'education' | 'transport';
 
 const categories: { id: ToolCategory; label: string; tools: { type: TileType | 'bulldoze'; icon: typeof Home }[] }[] = [
   {
-    id: 'zones',
-    label: 'Zones',
+    id: 'zones', label: 'Zones',
     tools: [
       { type: 'residential', icon: Home },
       { type: 'commercial', icon: Building2 },
@@ -24,8 +23,7 @@ const categories: { id: ToolCategory; label: string; tools: { type: TileType | '
     ],
   },
   {
-    id: 'infra',
-    label: 'Infrastructure',
+    id: 'infra', label: 'Infra',
     tools: [
       { type: 'road', icon: Route },
       { type: 'park', icon: TreePine },
@@ -35,12 +33,25 @@ const categories: { id: ToolCategory; label: string; tools: { type: TileType | '
     ],
   },
   {
-    id: 'services',
-    label: 'Services',
+    id: 'services', label: 'Services',
     tools: [
       { type: 'fire_station', icon: Flame },
       { type: 'police_station', icon: Shield },
       { type: 'hospital', icon: Heart },
+    ],
+  },
+  {
+    id: 'education', label: 'Education',
+    tools: [
+      { type: 'school', icon: BookOpen },
+      { type: 'university', icon: GraduationCap },
+    ],
+  },
+  {
+    id: 'transport', label: 'Transit',
+    tools: [
+      { type: 'bus_stop', icon: Bus },
+      { type: 'train_station', icon: TrainFront },
       { type: 'bulldoze', icon: Eraser },
     ],
   },
@@ -48,29 +59,23 @@ const categories: { id: ToolCategory; label: string; tools: { type: TileType | '
 
 export default function Toolbar({ selected, onSelect, money }: Props) {
   const [activeCategory, setActiveCategory] = useState<ToolCategory>('zones');
-
   const currentCategory = categories.find(c => c.id === activeCategory)!;
 
   return (
     <div className="flex flex-col items-center gap-1.5">
-      {/* Category tabs */}
       <div className="glass-panel rounded-xl p-1 flex gap-0.5">
         {categories.map(cat => (
           <button
             key={cat.id}
             onClick={() => setActiveCategory(cat.id)}
-            className={`px-3 py-1 rounded-lg text-[10px] font-display tracking-wider transition-all ${
-              activeCategory === cat.id
-                ? 'bg-primary/20 text-primary'
-                : 'text-muted-foreground hover:text-foreground'
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-display tracking-wider transition-all ${
+              activeCategory === cat.id ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             {cat.label}
           </button>
         ))}
       </div>
-
-      {/* Tools */}
       <div className="glass-panel rounded-2xl p-2 flex gap-1.5">
         {currentCategory.tools.map(({ type, icon: Icon }) => {
           const cost = TILE_COSTS[type];

@@ -1,10 +1,11 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { GameState, Camera, TILE_COLORS, TileType, OverlayType } from '@/types/game';
+import { GameState, Camera, TILE_COLORS, TileType, OverlayType, Agent, DRAGGABLE_TYPES } from '@/types/game';
 import { calculatePopulationDensity, calculateLandValue, calculateHappinessMap } from '@/lib/serviceCoverage';
 
 interface Props {
   gameState: GameState;
   onTileClick: (x: number, y: number) => void;
+  onTileDrag: (tiles: { x: number; y: number }[]) => void;
 }
 
 const TILE_W = 64;
@@ -32,135 +33,87 @@ function lighten(hex: string, amount: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-const FLAT_TYPES: TileType[] = ['grass', 'road', 'sand', 'forest'];
-const NO_WINDOWS: TileType[] = ['grass', 'road', 'sand', 'forest', 'water', 'park'];
+const FLAT_TYPES: TileType[] = ['grass', 'road', 'sand', 'forest', 'bus_stop'];
+const NO_WINDOWS: TileType[] = ['grass', 'road', 'sand', 'forest', 'water', 'park', 'bus_stop'];
+const SERVICE_TYPES: TileType[] = ['fire_station', 'police_station', 'hospital', 'water_pump', 'sewage', 'school', 'university', 'train_station'];
 
 function getOverlayColor(value: number, type: OverlayType): string {
   const v = Math.max(0, Math.min(1, value));
   switch (type) {
-    case 'population': return `rgba(255, ${Math.floor(255 - v * 200)}, ${Math.floor(50)}, ${v * 0.6})`;
+    case 'population': return `rgba(255, ${Math.floor(255 - v * 200)}, 50, ${v * 0.6})`;
     case 'landValue': return `rgba(${Math.floor(50 + v * 100)}, ${Math.floor(200 * v)}, ${Math.floor(50 + v * 150)}, ${v * 0.5})`;
-    case 'fire': return `rgba(255, ${Math.floor(80 - v * 60)}, ${Math.floor(50)}, ${v * 0.6})`;
-    case 'police': return `rgba(${Math.floor(60)}, ${Math.floor(100 + v * 100)}, 255, ${v * 0.6})`;
-    case 'health': return `rgba(255, ${Math.floor(140 + v * 60)}, ${Math.floor(50)}, ${v * 0.6})`;
-    case 'waterSupply': return `rgba(${Math.floor(50)}, ${Math.floor(150 + v * 100)}, 255, ${v * 0.6})`;
-    case 'sewage': return `rgba(${Math.floor(140 + v * 60)}, ${Math.floor(80)}, 255, ${v * 0.6})`;
-    case 'happiness': return `rgba(${Math.floor(50 + (1 - v) * 200)}, ${Math.floor(50 + v * 200)}, ${Math.floor(50)}, ${0.15 + v * 0.45})`;
+    case 'fire': return `rgba(255, ${Math.floor(80 - v * 60)}, 50, ${v * 0.6})`;
+    case 'police': return `rgba(60, ${Math.floor(100 + v * 100)}, 255, ${v * 0.6})`;
+    case 'health': return `rgba(255, ${Math.floor(140 + v * 60)}, 50, ${v * 0.6})`;
+    case 'waterSupply': return `rgba(50, ${Math.floor(150 + v * 100)}, 255, ${v * 0.6})`;
+    case 'sewage': return `rgba(${Math.floor(140 + v * 60)}, 80, 255, ${v * 0.6})`;
+    case 'happiness': return `rgba(${Math.floor(50 + (1 - v) * 200)}, ${Math.floor(50 + v * 200)}, 50, ${0.15 + v * 0.45})`;
+    case 'education': return `rgba(${Math.floor(100 + v * 80)}, ${Math.floor(200 * v)}, ${Math.floor(50 + v * 50)}, ${v * 0.55})`;
+    case 'transport': return `rgba(${Math.floor(200 * v)}, ${Math.floor(180 * v)}, 50, ${v * 0.5})`;
     default: return 'transparent';
   }
 }
 
-function drawWaterTile(
-  ctx: CanvasRenderingContext2D,
-  sx: number, sy: number, w: number, h: number,
-  tick: number, x: number, y: number
-) {
+function drawWaterTile(ctx: CanvasRenderingContext2D, sx: number, sy: number, w: number, h: number, tick: number, x: number, y: number) {
   const waveOffset = Math.sin((tick * 0.05) + x * 0.5 + y * 0.3) * 1.5;
   const adjustedSy = sy + waveOffset;
   ctx.beginPath();
-  ctx.moveTo(sx, adjustedSy - h);
-  ctx.lineTo(sx + w, adjustedSy);
-  ctx.lineTo(sx, adjustedSy + h);
-  ctx.lineTo(sx - w, adjustedSy);
+  ctx.moveTo(sx, adjustedSy - h); ctx.lineTo(sx + w, adjustedSy); ctx.lineTo(sx, adjustedSy + h); ctx.lineTo(sx - w, adjustedSy);
   ctx.closePath();
   const depth = Math.sin(x * 0.3 + y * 0.4) * 0.15;
   ctx.fillStyle = `rgb(${Math.floor(30 + depth * 20)},${Math.floor(80 + depth * 30)},${Math.floor(200 + depth * 40)})`;
   ctx.fill();
   ctx.fillStyle = `rgba(140, 200, 255, ${0.1 + Math.sin(tick * 0.08 + x + y) * 0.08})`;
   ctx.fill();
-  ctx.strokeStyle = 'rgba(100, 180, 255, 0.15)';
-  ctx.lineWidth = 0.5;
-  ctx.stroke();
+  ctx.strokeStyle = 'rgba(100, 180, 255, 0.15)'; ctx.lineWidth = 0.5; ctx.stroke();
 }
 
-function drawTile(
-  ctx: CanvasRenderingContext2D,
-  x: number, y: number,
-  cam: Camera,
-  type: TileType,
-  level: number,
-  hover: boolean,
-  tick: number,
-  overlayValue?: number,
-  overlayType?: OverlayType
-) {
+function drawTile(ctx: CanvasRenderingContext2D, x: number, y: number, cam: Camera, type: TileType, level: number, hover: boolean, tick: number, overlayValue?: number, overlayType?: OverlayType, isPreview?: boolean) {
   const [sx, sy] = toIso(x, y, cam);
   const w = (TILE_W / 2) * cam.zoom;
   const h = (TILE_H / 2) * cam.zoom;
-
-  const canvas = ctx.canvas;
   const dpr = window.devicePixelRatio || 1;
-  const cw = canvas.width / dpr;
-  const ch = canvas.height / dpr;
+  const cw = ctx.canvas.width / dpr;
+  const ch = ctx.canvas.height / dpr;
   if (sx + w < 0 || sx - w > cw || sy + h + 60 < 0 || sy - h - 60 > ch) return;
 
-  if (type === 'water') {
-    drawWaterTile(ctx, sx, sy, w, h, tick, x, y);
-    return;
-  }
+  if (type === 'water') { drawWaterTile(ctx, sx, sy, w, h, tick, x, y); return; }
 
   const colors = TILE_COLORS[type];
   const buildingHeight = FLAT_TYPES.includes(type) ? 0 : level * 8 * cam.zoom;
   const treeHeight = type === 'forest' ? 6 * cam.zoom : 0;
-
-  // Service buildings get extra height
-  const serviceExtra = ['fire_station', 'police_station', 'hospital', 'water_pump', 'sewage'].includes(type) ? 6 * cam.zoom : 0;
+  const serviceExtra = SERVICE_TYPES.includes(type) ? 6 * cam.zoom : 0;
   const totalHeight = buildingHeight + treeHeight + serviceExtra;
 
-  if (totalHeight > 0) {
-    ctx.beginPath();
-    ctx.moveTo(sx - w, sy);
-    ctx.lineTo(sx, sy + h);
-    ctx.lineTo(sx, sy + h - totalHeight);
-    ctx.lineTo(sx - w, sy - totalHeight);
-    ctx.closePath();
-    ctx.fillStyle = colors[2];
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
+  if (isPreview) ctx.globalAlpha = 0.5;
 
-    ctx.beginPath();
-    ctx.moveTo(sx + w, sy);
-    ctx.lineTo(sx, sy + h);
-    ctx.lineTo(sx, sy + h - totalHeight);
-    ctx.lineTo(sx + w, sy - totalHeight);
-    ctx.closePath();
-    ctx.fillStyle = colors[1];
-    ctx.fill();
-    ctx.stroke();
+  if (totalHeight > 0) {
+    ctx.beginPath(); ctx.moveTo(sx - w, sy); ctx.lineTo(sx, sy + h); ctx.lineTo(sx, sy + h - totalHeight); ctx.lineTo(sx - w, sy - totalHeight); ctx.closePath();
+    ctx.fillStyle = colors[2]; ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.5; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx + w, sy); ctx.lineTo(sx, sy + h); ctx.lineTo(sx, sy + h - totalHeight); ctx.lineTo(sx + w, sy - totalHeight); ctx.closePath();
+    ctx.fillStyle = colors[1]; ctx.fill(); ctx.stroke();
   }
 
-  // Top face
-  ctx.beginPath();
-  ctx.moveTo(sx, sy - h - totalHeight);
-  ctx.lineTo(sx + w, sy - totalHeight);
-  ctx.lineTo(sx, sy + h - totalHeight);
-  ctx.lineTo(sx - w, sy - totalHeight);
-  ctx.closePath();
-  ctx.fillStyle = hover ? lighten(colors[0], 30) : colors[0];
-  ctx.fill();
-  ctx.strokeStyle = hover ? 'rgba(94,234,212,0.6)' : 'rgba(0,0,0,0.1)';
-  ctx.lineWidth = hover ? 2 : 0.3;
-  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(sx, sy - h - totalHeight); ctx.lineTo(sx + w, sy - totalHeight); ctx.lineTo(sx, sy + h - totalHeight); ctx.lineTo(sx - w, sy - totalHeight); ctx.closePath();
+  ctx.fillStyle = hover ? lighten(colors[0], 30) : colors[0]; ctx.fill();
+  ctx.strokeStyle = hover ? 'rgba(94,234,212,0.6)' : 'rgba(0,0,0,0.1)'; ctx.lineWidth = hover ? 2 : 0.3; ctx.stroke();
 
-  // Service building icons (simple cross/badge)
-  if (['fire_station', 'police_station', 'hospital', 'water_pump', 'sewage'].includes(type) && cam.zoom > 0.4) {
+  if (SERVICE_TYPES.includes(type) && cam.zoom > 0.4) {
     const iconSize = 3 * cam.zoom;
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
     if (type === 'hospital') {
-      // Cross
       ctx.fillRect(sx - iconSize * 0.3, sy - totalHeight - iconSize, iconSize * 0.6, iconSize * 2);
       ctx.fillRect(sx - iconSize, sy - totalHeight - iconSize * 0.3, iconSize * 2, iconSize * 0.6);
+    } else if (type === 'school' || type === 'university') {
+      // Book shape
+      ctx.fillRect(sx - iconSize * 0.6, sy - totalHeight - iconSize * 0.8, iconSize * 1.2, iconSize * 0.8);
+      ctx.fillStyle = colors[2];
+      ctx.fillRect(sx - iconSize * 0.1, sy - totalHeight - iconSize * 0.8, iconSize * 0.2, iconSize * 0.8);
     } else {
-      // Dot
-      ctx.beginPath();
-      ctx.arc(sx, sy - totalHeight - iconSize * 0.5, iconSize * 0.5, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(sx, sy - totalHeight - iconSize * 0.5, iconSize * 0.5, 0, Math.PI * 2); ctx.fill();
     }
   }
 
-  // Building windows
   if (level >= 2 && !NO_WINDOWS.includes(type)) {
     const dotSize = 2 * cam.zoom;
     ctx.fillStyle = 'rgba(255,255,200,0.7)';
@@ -171,42 +124,88 @@ function drawTile(
     }
   }
 
-  // Forest trees
   if (type === 'forest' && cam.zoom > 0.5) {
     ctx.fillStyle = '#0d4a0d';
     const ts = 3 * cam.zoom;
-    ctx.beginPath();
-    ctx.moveTo(sx, sy - totalHeight - ts * 2);
-    ctx.lineTo(sx - ts, sy - totalHeight);
-    ctx.lineTo(sx + ts, sy - totalHeight);
-    ctx.closePath();
-    ctx.fill();
+    ctx.beginPath(); ctx.moveTo(sx, sy - totalHeight - ts * 2); ctx.lineTo(sx - ts, sy - totalHeight); ctx.lineTo(sx + ts, sy - totalHeight); ctx.closePath(); ctx.fill();
   }
 
-  // Overlay
+  if (isPreview) ctx.globalAlpha = 1;
+
   if (overlayType && overlayType !== 'none' && overlayValue !== undefined && overlayValue > 0.01) {
-    ctx.beginPath();
-    ctx.moveTo(sx, sy - h - totalHeight);
-    ctx.lineTo(sx + w, sy - totalHeight);
-    ctx.lineTo(sx, sy + h - totalHeight);
-    ctx.lineTo(sx - w, sy - totalHeight);
-    ctx.closePath();
-    ctx.fillStyle = getOverlayColor(overlayValue, overlayType);
-    ctx.fill();
+    ctx.beginPath(); ctx.moveTo(sx, sy - h - totalHeight); ctx.lineTo(sx + w, sy - totalHeight); ctx.lineTo(sx, sy + h - totalHeight); ctx.lineTo(sx - w, sy - totalHeight); ctx.closePath();
+    ctx.fillStyle = getOverlayColor(overlayValue, overlayType); ctx.fill();
   }
 }
 
-export default function IsometricCanvas({ gameState, onTileClick }: Props) {
+function drawAgent(ctx: CanvasRenderingContext2D, agent: Agent, cam: Camera) {
+  const lx = agent.x + (agent.targetX - agent.x) * agent.progress;
+  const ly = agent.y + (agent.targetY - agent.y) * agent.progress;
+  const [sx, sy] = toIso(lx, ly, cam);
+
+  const dpr = window.devicePixelRatio || 1;
+  const cw = ctx.canvas.width / dpr;
+  const ch = ctx.canvas.height / dpr;
+  if (sx < -20 || sx > cw + 20 || sy < -20 || sy > ch + 20) return;
+
+  const z = cam.zoom;
+  if (agent.type === 'car') {
+    const size = 3 * z;
+    ctx.fillStyle = agent.color;
+    ctx.fillRect(sx - size, sy - size * 1.5, size * 2, size);
+    // Windshield
+    ctx.fillStyle = 'rgba(200,230,255,0.7)';
+    ctx.fillRect(sx - size * 0.5, sy - size * 1.5, size, size * 0.4);
+  } else if (agent.type === 'bus') {
+    const size = 4 * z;
+    ctx.fillStyle = agent.color;
+    ctx.fillRect(sx - size, sy - size * 1.2, size * 2, size * 0.8);
+    ctx.fillStyle = 'rgba(200,230,255,0.6)';
+    ctx.fillRect(sx - size * 0.8, sy - size * 1.2, size * 0.4, size * 0.3);
+    ctx.fillRect(sx + size * 0.2, sy - size * 1.2, size * 0.4, size * 0.3);
+  } else {
+    // Pedestrian - small dot
+    const size = 1.5 * z;
+    ctx.fillStyle = agent.color;
+    ctx.beginPath(); ctx.arc(sx, sy - size * 2, size, 0, Math.PI * 2); ctx.fill();
+    // Body
+    ctx.fillRect(sx - size * 0.3, sy - size * 2, size * 0.6, size * 1.5);
+  }
+}
+
+// Get tiles in a line between two points (Bresenham's)
+function getTilesInLine(x0: number, y0: number, x1: number, y1: number): { x: number; y: number }[] {
+  const tiles: { x: number; y: number }[] = [];
+  const dx = Math.abs(x1 - x0);
+  const dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+  let cx = x0, cy = y0;
+
+  while (true) {
+    tiles.push({ x: cx, y: cy });
+    if (cx === x1 && cy === y1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; cx += sx; }
+    if (e2 < dx) { err += dx; cy += sy; }
+  }
+  return tiles;
+}
+
+export default function IsometricCanvas({ gameState, onTileClick, onTileDrag }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 0.7 });
   const [hoverTile, setHoverTile] = useState<[number, number] | null>(null);
-  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, lastX: 0, lastY: 0 });
+  const dragRef = useRef({ dragging: false, isDragPlace: false, startX: 0, startY: 0, lastX: 0, lastY: 0, startTileX: -1, startTileY: -1 });
+  const [dragPreview, setDragPreview] = useState<{ x: number; y: number }[] | null>(null);
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
   const animFrameRef = useRef<number>(0);
   const tickRef = useRef(0);
 
-  // Calculate overlay map
+  const isDraggableTool = DRAGGABLE_TYPES.includes(gameState.selectedTool);
+
   const overlayMap = useMemo<number[][] | null>(() => {
     const { overlay, grid, gridSize, coverage } = gameState;
     if (overlay === 'none') return null;
@@ -219,6 +218,8 @@ export default function IsometricCanvas({ gameState, onTileClick }: Props) {
       case 'waterSupply': return coverage.waterSupply;
       case 'sewage': return coverage.sewage;
       case 'happiness': return calculateHappinessMap(grid, coverage, gridSize);
+      case 'education': return coverage.education;
+      case 'transport': return coverage.transport;
       default: return null;
     }
   }, [gameState.overlay, gameState.grid, gameState.coverage, gameState.gridSize]);
@@ -246,14 +247,15 @@ export default function IsometricCanvas({ gameState, onTileClick }: Props) {
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
+        canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = 'hsl(220, 20%, 8%)';
       ctx.fillRect(0, 0, rect.width, rect.height);
 
       const cam = cameraRef.current;
+
+      // Draw tiles
       for (let y = 0; y < gameState.gridSize; y++) {
         for (let x = 0; x < gameState.gridSize; x++) {
           const tile = gameState.grid[y][x];
@@ -262,11 +264,24 @@ export default function IsometricCanvas({ gameState, onTileClick }: Props) {
           drawTile(ctx, x, y, cam, tile.type, tile.level, isHover, tickRef.current, ov, gameState.overlay);
         }
       }
+
+      // Draw drag preview
+      if (dragPreview) {
+        for (const { x, y } of dragPreview) {
+          drawTile(ctx, x, y, cam, gameState.selectedTool === 'bulldoze' ? 'road' : gameState.selectedTool as TileType, 1, false, tickRef.current, undefined, undefined, true);
+        }
+      }
+
+      // Draw agents (on top of tiles)
+      for (const agent of gameState.agents) {
+        drawAgent(ctx, agent, cam);
+      }
+
       animFrameRef.current = requestAnimationFrame(render);
     };
     animFrameRef.current = requestAnimationFrame(render);
     return () => { running = false; cancelAnimationFrame(animFrameRef.current); };
-  }, [gameState, hoverTile, overlayMap]);
+  }, [gameState, hoverTile, overlayMap, dragPreview]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -283,14 +298,37 @@ export default function IsometricCanvas({ gameState, onTileClick }: Props) {
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    dragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY };
-  }, []);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const [tx, ty] = fromIso(e.clientX - rect.left, e.clientY - rect.top, cameraRef.current);
+
+    dragRef.current = {
+      dragging: true,
+      isDragPlace: isDraggableTool && tx >= 0 && tx < gameState.gridSize && ty >= 0 && ty < gameState.gridSize,
+      startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY,
+      startTileX: tx, startTileY: ty,
+    };
+  }, [isDraggableTool, gameState.gridSize]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const [tx, ty] = fromIso(mx, my, cameraRef.current);
+
     if (dragRef.current.dragging && e.buttons > 0) {
+      if (dragRef.current.isDragPlace) {
+        // Show drag preview line
+        if (tx >= 0 && tx < gameState.gridSize && ty >= 0 && ty < gameState.gridSize) {
+          const tiles = getTilesInLine(dragRef.current.startTileX, dragRef.current.startTileY, tx, ty);
+          setDragPreview(tiles);
+        }
+        return;
+      }
+
       const dx = e.clientX - dragRef.current.lastX;
       const dy = e.clientY - dragRef.current.lastY;
       if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
@@ -300,18 +338,27 @@ export default function IsometricCanvas({ gameState, onTileClick }: Props) {
         return;
       }
     }
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const [tx, ty] = fromIso(mx, my, cameraRef.current);
+
     if (tx >= 0 && tx < gameState.gridSize && ty >= 0 && ty < gameState.gridSize) {
       setHoverTile([tx, ty]);
     } else { setHoverTile(null); }
   }, [gameState.gridSize]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    const wasDragPlace = dragRef.current.isDragPlace;
     const totalDx = Math.abs(e.clientX - dragRef.current.startX);
     const totalDy = Math.abs(e.clientY - dragRef.current.startY);
     dragRef.current.dragging = false;
+    dragRef.current.isDragPlace = false;
+
+    if (wasDragPlace && dragPreview && dragPreview.length > 1) {
+      // Complete drag placement
+      onTileDrag(dragPreview);
+      setDragPreview(null);
+      return;
+    }
+    setDragPreview(null);
+
     if (totalDx < 5 && totalDy < 5 && e.button === 0) {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -319,7 +366,7 @@ export default function IsometricCanvas({ gameState, onTileClick }: Props) {
       const [tx, ty] = fromIso(e.clientX - rect.left, e.clientY - rect.top, cameraRef.current);
       if (tx >= 0 && tx < gameState.gridSize && ty >= 0 && ty < gameState.gridSize) onTileClick(tx, ty);
     }
-  }, [gameState.gridSize, onTileClick]);
+  }, [gameState.gridSize, onTileClick, onTileDrag, dragPreview]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();

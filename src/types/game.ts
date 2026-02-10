@@ -1,7 +1,10 @@
 export type TileType =
   | 'grass' | 'residential' | 'commercial' | 'industrial'
   | 'road' | 'park' | 'power' | 'water' | 'sand' | 'forest'
-  | 'water_pump' | 'sewage' | 'fire_station' | 'police_station' | 'hospital';
+  | 'water_pump' | 'sewage' | 'fire_station' | 'police_station' | 'hospital'
+  | 'school' | 'university' | 'bus_stop' | 'train_station';
+
+export const DRAGGABLE_TYPES: (TileType | 'bulldoze')[] = ['road', 'bulldoze'];
 
 export interface Tile {
   type: TileType;
@@ -25,14 +28,30 @@ export interface BudgetEntry {
 }
 
 export interface ServiceCoverage {
-  fire: number[][];      // 0-1 coverage per tile
+  fire: number[][];
   police: number[][];
   health: number[][];
   waterSupply: number[][];
   sewage: number[][];
+  education: number[][];
+  transport: number[][];
 }
 
-export type OverlayType = 'none' | 'population' | 'landValue' | 'fire' | 'police' | 'health' | 'waterSupply' | 'sewage' | 'happiness';
+export type OverlayType = 'none' | 'population' | 'landValue' | 'fire' | 'police' | 'health' | 'waterSupply' | 'sewage' | 'happiness' | 'education' | 'transport';
+
+export interface Agent {
+  id: number;
+  x: number;
+  y: number;
+  targetX: number;
+  targetY: number;
+  progress: number; // 0-1 along current segment
+  type: 'car' | 'bus' | 'pedestrian';
+  color: string;
+  path: { x: number; y: number }[];
+  pathIndex: number;
+  speed: number;
+}
 
 export interface Resources {
   money: number;
@@ -57,6 +76,7 @@ export interface GameState {
   coverage: ServiceCoverage;
   budgetHistory: BudgetEntry[];
   overlay: OverlayType;
+  agents: Agent[];
 }
 
 export interface Camera {
@@ -71,6 +91,10 @@ export const SERVICE_RADIUS: Partial<Record<TileType, number>> = {
   hospital: 14,
   water_pump: 15,
   sewage: 12,
+  school: 10,
+  university: 16,
+  bus_stop: 8,
+  train_station: 18,
 };
 
 export const SERVICE_CAPACITY: Partial<Record<TileType, number>> = {
@@ -94,6 +118,10 @@ export const TILE_COSTS: Record<TileType | 'bulldoze', number> = {
   fire_station: 600,
   police_station: 650,
   hospital: 800,
+  school: 450,
+  university: 900,
+  bus_stop: 200,
+  train_station: 750,
   bulldoze: 10,
 };
 
@@ -106,6 +134,10 @@ export const TILE_MAINTENANCE: Partial<Record<TileType, number>> = {
   power: 10,
   park: 2,
   road: 1,
+  school: 10,
+  university: 20,
+  bus_stop: 4,
+  train_station: 15,
 };
 
 export const TILE_COLORS: Record<TileType, string[]> = {
@@ -124,6 +156,10 @@ export const TILE_COLORS: Record<TileType, string[]> = {
   fire_station: ['#f87171', '#ef4444', '#dc2626'],
   police_station: ['#60a5fa', '#3b82f6', '#1d4ed8'],
   hospital: ['#fb923c', '#f97316', '#ea580c'],
+  school: ['#a3e635', '#84cc16', '#65a30d'],
+  university: ['#c084fc', '#a855f7', '#9333ea'],
+  bus_stop: ['#fde68a', '#fcd34d', '#fbbf24'],
+  train_station: ['#94a3b8', '#64748b', '#475569'],
 };
 
 export const TILE_LABELS: Record<TileType | 'bulldoze', string> = {
@@ -142,5 +178,9 @@ export const TILE_LABELS: Record<TileType | 'bulldoze', string> = {
   fire_station: 'Fire Station',
   police_station: 'Police',
   hospital: 'Hospital',
+  school: 'School',
+  university: 'University',
+  bus_stop: 'Bus Stop',
+  train_station: 'Train Stn',
   bulldoze: 'Bulldoze',
 };
