@@ -19,6 +19,12 @@ function applyRadialCoverage(map: number[][], cx: number, cy: number, radius: nu
   }
 }
 
+const FIRE_TYPES: TileType[] = ['fire_station_small', 'fire_station_large'];
+const POLICE_TYPES: TileType[] = ['police_station', 'police_hq', 'prison'];
+const HEALTH_TYPES: TileType[] = ['clinic', 'hospital'];
+const EDU_TYPES: TileType[] = ['elementary_school', 'high_school', 'university', 'library'];
+const TRANSPORT_TYPES: TileType[] = ['bus_depot', 'airport', 'helipad', 'train_station'];
+
 export function calculateServiceCoverage(grid: Tile[][], size: number): ServiceCoverage {
   const fire = createEmptyMap(size);
   const police = createEmptyMap(size);
@@ -33,17 +39,14 @@ export function calculateServiceCoverage(grid: Tile[][], size: number): ServiceC
       const tile = grid[y][x];
       const radius = SERVICE_RADIUS[tile.type];
       if (!radius) continue;
-      switch (tile.type) {
-        case 'fire_station': applyRadialCoverage(fire, x, y, radius, size); break;
-        case 'police_station': applyRadialCoverage(police, x, y, radius, size); break;
-        case 'hospital': applyRadialCoverage(health, x, y, radius, size); break;
-        case 'water_pump': applyRadialCoverage(waterSupply, x, y, radius, size); break;
-        case 'sewage': applyRadialCoverage(sewage, x, y, radius, size); break;
-        case 'school': applyRadialCoverage(education, x, y, radius, size); break;
-        case 'university': applyRadialCoverage(education, x, y, radius, size); break;
-        case 'bus_stop': applyRadialCoverage(transport, x, y, radius, size); break;
-        case 'train_station': applyRadialCoverage(transport, x, y, radius, size); break;
-      }
+
+      if (FIRE_TYPES.includes(tile.type)) applyRadialCoverage(fire, x, y, radius, size);
+      else if (POLICE_TYPES.includes(tile.type)) applyRadialCoverage(police, x, y, radius, size);
+      else if (HEALTH_TYPES.includes(tile.type)) applyRadialCoverage(health, x, y, radius, size);
+      else if (tile.type === 'water_pump') applyRadialCoverage(waterSupply, x, y, radius, size);
+      else if (tile.type === 'sewage' || tile.type === 'garbage_dump' || tile.type === 'recycling_plant') applyRadialCoverage(sewage, x, y, radius, size);
+      else if (EDU_TYPES.includes(tile.type)) applyRadialCoverage(education, x, y, radius, size);
+      else if (TRANSPORT_TYPES.includes(tile.type)) applyRadialCoverage(transport, x, y, radius, size);
     }
   }
 
@@ -86,6 +89,7 @@ export function calculateLandValue(grid: Tile[][], coverage: ServiceCoverage, si
           if (neighbor.type === 'park') value += 0.03;
           if (neighbor.type === 'water') value += 0.02;
           if (neighbor.type === 'industrial') value -= 0.04;
+          if (neighbor.type === 'garbage_dump') value -= 0.06;
         }
       }
       for (let dy = -2; dy <= 2; dy++) {
@@ -117,7 +121,10 @@ export function calculateHappinessMap(grid: Tile[][], coverage: ServiceCoverage,
       for (let dy = -4; dy <= 4; dy++) {
         for (let dx = -4; dx <= 4; dx++) {
           const nx = x + dx, ny = y + dy;
-          if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[ny][nx].type === 'industrial') h -= 0.03;
+          if (nx >= 0 && nx < size && ny >= 0 && ny < size) {
+            if (grid[ny][nx].type === 'industrial') h -= 0.03;
+            if (grid[ny][nx].type === 'garbage_dump') h -= 0.05;
+          }
         }
       }
       map[y][x] = Math.min(1, Math.max(0, h));

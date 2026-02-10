@@ -8,8 +8,8 @@ interface Props {
   onTileDrag: (tiles: { x: number; y: number }[]) => void;
 }
 
-const TILE_W = 64;
-const TILE_H = 32;
+const TILE_W = 128;
+const TILE_H = 64;
 const DAY_LENGTH = 240;
 
 function toIso(x: number, y: number, cam: Camera): [number, number] {
@@ -54,9 +54,9 @@ function getDaylight(timeOfDay: number): number {
   return 0.5 + 0.5 * Math.sin((t - 0.25) * Math.PI * 2);
 }
 
-const FLAT_TYPES: TileType[] = ['grass', 'road', 'sand', 'forest', 'bus_stop'];
-const NO_WINDOWS: TileType[] = ['grass', 'road', 'sand', 'forest', 'water', 'park', 'bus_stop'];
-const SERVICE_TYPES: TileType[] = ['fire_station', 'police_station', 'hospital', 'water_pump', 'sewage', 'school', 'university', 'train_station'];
+const FLAT_TYPES: TileType[] = ['grass', 'road', 'sand', 'forest', 'bus_depot', 'helipad'];
+const NO_WINDOWS: TileType[] = ['grass', 'road', 'sand', 'forest', 'water', 'park', 'bus_depot', 'helipad', 'power_wind', 'power_solar', 'garbage_dump'];
+const SERVICE_TYPES: TileType[] = ['fire_station_small', 'fire_station_large', 'police_station', 'police_hq', 'prison', 'clinic', 'hospital', 'water_pump', 'sewage', 'garbage_dump', 'recycling_plant', 'elementary_school', 'high_school', 'university', 'library', 'train_station', 'bus_depot', 'airport', 'helipad'];
 
 function getOverlayColor(value: number, type: OverlayType): string {
   const v = Math.max(0, Math.min(1, value));
@@ -222,25 +222,32 @@ function drawTile(ctx: CanvasRenderingContext2D, x: number, y: number, cam: Came
   if (SERVICE_TYPES.includes(type) && cam.zoom > 0.4) {
     const iconSize = 3.5 * cam.zoom;
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    if (type === 'hospital') {
+    if (type === 'hospital' || type === 'clinic') {
       ctx.fillRect(sx - iconSize * 0.3, sy - totalHeight - h - iconSize, iconSize * 0.6, iconSize * 2);
       ctx.fillRect(sx - iconSize, sy - totalHeight - h - iconSize * 0.3, iconSize * 2, iconSize * 0.6);
-    } else if (type === 'fire_station') {
-      // Flame shape
+    } else if (type === 'fire_station_small' || type === 'fire_station_large') {
       ctx.fillStyle = 'rgba(255,100,50,0.9)';
       ctx.beginPath();
       ctx.moveTo(sx, sy - totalHeight - h - iconSize * 1.5);
       ctx.quadraticCurveTo(sx + iconSize, sy - totalHeight - h, sx, sy - totalHeight - h + iconSize * 0.3);
       ctx.quadraticCurveTo(sx - iconSize, sy - totalHeight - h, sx, sy - totalHeight - h - iconSize * 1.5);
       ctx.fill();
-    } else if (type === 'police_station') {
-      // Star badge
+    } else if (type === 'police_station' || type === 'police_hq') {
       ctx.fillStyle = 'rgba(100,180,255,0.9)';
       ctx.beginPath(); ctx.arc(sx, sy - totalHeight - h - iconSize * 0.3, iconSize * 0.6, 0, Math.PI * 2); ctx.fill();
-    } else if (type === 'school' || type === 'university') {
+    } else if (type === 'prison') {
+      ctx.strokeStyle = 'rgba(150,150,150,0.8)';
+      ctx.lineWidth = 1.5;
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath(); ctx.moveTo(sx + i * iconSize * 0.5, sy - totalHeight - h - iconSize); ctx.lineTo(sx + i * iconSize * 0.5, sy - totalHeight - h + iconSize * 0.5); ctx.stroke();
+      }
+    } else if (type === 'elementary_school' || type === 'high_school' || type === 'university' || type === 'library') {
       ctx.fillRect(sx - iconSize * 0.7, sy - totalHeight - h - iconSize * 0.6, iconSize * 1.4, iconSize * 0.7);
       ctx.fillStyle = colors[2];
       ctx.fillRect(sx - iconSize * 0.1, sy - totalHeight - h - iconSize * 0.6, iconSize * 0.2, iconSize * 0.7);
+    } else if (type === 'airport') {
+      ctx.fillStyle = 'rgba(200,200,200,0.8)';
+      ctx.beginPath(); ctx.moveTo(sx, sy - totalHeight - h - iconSize * 1.5); ctx.lineTo(sx - iconSize * 1.2, sy - totalHeight - h); ctx.lineTo(sx + iconSize * 1.2, sy - totalHeight - h); ctx.closePath(); ctx.fill();
     } else {
       ctx.beginPath(); ctx.arc(sx, sy - totalHeight - h - iconSize * 0.3, iconSize * 0.5, 0, Math.PI * 2); ctx.fill();
     }
@@ -255,31 +262,125 @@ function drawTile(ctx: CanvasRenderingContext2D, x: number, y: number, cam: Came
   }
 
   // Forest trees
-  if (type === 'forest' && cam.zoom > 0.5) {
+  if (type === 'forest' && cam.zoom > 0.25) {
     ctx.fillStyle = darken('#0d4a0d', tintAmount);
-    const ts = 3 * cam.zoom;
+    const ts = 5 * cam.zoom;
     ctx.beginPath(); ctx.moveTo(sx, sy - totalHeight - ts * 2); ctx.lineTo(sx - ts, sy - totalHeight); ctx.lineTo(sx + ts, sy - totalHeight); ctx.closePath(); ctx.fill();
-    // Second smaller tree
     ctx.fillStyle = darken('#1a6b1a', tintAmount);
     ctx.beginPath(); ctx.moveTo(sx - ts, sy - totalHeight - ts * 1.3); ctx.lineTo(sx - ts * 1.8, sy - totalHeight + ts * 0.3); ctx.lineTo(sx - ts * 0.2, sy - totalHeight + ts * 0.3); ctx.closePath(); ctx.fill();
   }
 
   // Park details
-  if (type === 'park' && cam.zoom > 0.5) {
-    const ts = 2 * cam.zoom;
-    // Small trees
+  if (type === 'park' && cam.zoom > 0.25) {
+    const ts = 3.5 * cam.zoom;
     ctx.fillStyle = darken('#059669', tintAmount);
     ctx.beginPath(); ctx.arc(sx - ts * 1.5, sy - h - ts, ts, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(sx + ts, sy - h - ts * 0.8, ts * 0.8, 0, Math.PI * 2); ctx.fill();
-    // Path
     ctx.strokeStyle = 'rgba(200,200,180,0.3)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(sx - w * 0.5, sy); ctx.lineTo(sx + w * 0.3, sy - h * 0.5); ctx.stroke();
   }
 
+  // Wind turbine
+  if (type === 'power_wind' && cam.zoom > 0.2) {
+    const poleH = 18 * cam.zoom;
+    ctx.strokeStyle = darken('#e2e8f0', tintAmount);
+    ctx.lineWidth = 2 * cam.zoom;
+    ctx.beginPath(); ctx.moveTo(sx, sy - h); ctx.lineTo(sx, sy - h - poleH); ctx.stroke();
+    // Blades (rotating)
+    const bladeLen = 8 * cam.zoom;
+    const angle = tick * 0.06;
+    ctx.strokeStyle = darken('#94a3b8', tintAmount);
+    ctx.lineWidth = 1.5 * cam.zoom;
+    for (let i = 0; i < 3; i++) {
+      const a = angle + i * (Math.PI * 2 / 3);
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - h - poleH);
+      ctx.lineTo(sx + Math.cos(a) * bladeLen, sy - h - poleH + Math.sin(a) * bladeLen * 0.4);
+      ctx.stroke();
+    }
+    // Hub
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath(); ctx.arc(sx, sy - h - poleH, 1.5 * cam.zoom, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Solar panels
+  if (type === 'power_solar' && cam.zoom > 0.2) {
+    ctx.fillStyle = darken('#1e40af', tintAmount);
+    const panelW = w * 0.6;
+    const panelH = h * 0.4;
+    ctx.fillRect(sx - panelW * 0.5, sy - h - panelH - 2 * cam.zoom, panelW, panelH);
+    ctx.fillRect(sx - panelW * 0.5 + panelW * 0.3, sy - h - panelH * 0.7 - 2 * cam.zoom, panelW * 0.5, panelH * 0.8);
+    // Grid lines
+    ctx.strokeStyle = 'rgba(100,180,255,0.4)';
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(sx - panelW * 0.5, sy - h - panelH - 2 * cam.zoom, panelW, panelH);
+  }
+
+  // Coal/Oil plant smokestacks
+  if ((type === 'power_coal' || type === 'power_oil') && cam.zoom > 0.2) {
+    const stackH = 12 * cam.zoom;
+    const stackW = 2.5 * cam.zoom;
+    ctx.fillStyle = darken('#4b5563', tintAmount);
+    ctx.fillRect(sx - stackW * 2, sy - totalHeight - h - stackH, stackW, stackH);
+    ctx.fillRect(sx + stackW, sy - totalHeight - h - stackH * 0.8, stackW, stackH * 0.8);
+    // Smoke
+    ctx.fillStyle = `rgba(180,180,180,${0.15 + Math.sin(tick * 0.05) * 0.1})`;
+    const smokeY = sy - totalHeight - h - stackH;
+    ctx.beginPath(); ctx.arc(sx - stackW * 1.5, smokeY - 4 * cam.zoom + Math.sin(tick * 0.03) * 2, 3 * cam.zoom, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sx - stackW * 1.5 - 2 * cam.zoom, smokeY - 8 * cam.zoom + Math.sin(tick * 0.04) * 2, 4 * cam.zoom, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Nuclear cooling towers
+  if (type === 'power_nuclear' && cam.zoom > 0.2) {
+    const towerH = 16 * cam.zoom;
+    const towerW = 5 * cam.zoom;
+    ctx.fillStyle = darken('#d1d5db', tintAmount);
+    // Hyperboloid shape
+    ctx.beginPath();
+    ctx.moveTo(sx - towerW, sy - totalHeight - h);
+    ctx.quadraticCurveTo(sx - towerW * 0.6, sy - totalHeight - h - towerH * 0.5, sx - towerW * 0.8, sy - totalHeight - h - towerH);
+    ctx.lineTo(sx + towerW * 0.8, sy - totalHeight - h - towerH);
+    ctx.quadraticCurveTo(sx + towerW * 0.6, sy - totalHeight - h - towerH * 0.5, sx + towerW, sy - totalHeight - h);
+    ctx.closePath();
+    ctx.fill();
+    // Steam
+    ctx.fillStyle = `rgba(220,220,220,${0.2 + Math.sin(tick * 0.04) * 0.1})`;
+    ctx.beginPath(); ctx.arc(sx, sy - totalHeight - h - towerH - 3 * cam.zoom, 4 * cam.zoom, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Garbage dump mounds
+  if (type === 'garbage_dump' && cam.zoom > 0.2) {
+    ctx.fillStyle = darken('#78716c', tintAmount);
+    ctx.beginPath(); ctx.arc(sx - w * 0.2, sy - h - 3 * cam.zoom, 4 * cam.zoom, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = darken('#57534e', tintAmount);
+    ctx.beginPath(); ctx.arc(sx + w * 0.15, sy - h - 2 * cam.zoom, 3 * cam.zoom, Math.PI, 0); ctx.fill();
+  }
+
+  // Airport runway stripe
+  if (type === 'airport' && cam.zoom > 0.15) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1.5 * cam.zoom;
+    ctx.setLineDash([4 * cam.zoom, 3 * cam.zoom]);
+    ctx.beginPath(); ctx.moveTo(sx - w * 0.6, sy); ctx.lineTo(sx + w * 0.6, sy); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Helipad H marking
+  if (type === 'helipad' && cam.zoom > 0.2) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1.5 * cam.zoom;
+    const hs = 4 * cam.zoom;
+    ctx.beginPath(); ctx.moveTo(sx - hs, sy - h - hs); ctx.lineTo(sx - hs, sy - h + hs); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx + hs, sy - h - hs); ctx.lineTo(sx + hs, sy - h + hs); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx - hs, sy - h); ctx.lineTo(sx + hs, sy - h); ctx.stroke();
+    // Circle
+    ctx.beginPath(); ctx.arc(sx, sy - h, hs * 1.8, 0, Math.PI * 2); ctx.stroke();
+  }
+
   // Street lights at night on roads
-  if (type === 'road' && daylight < 0.35 && cam.zoom > 0.5) {
-    const lightR = 4 * cam.zoom;
+  if (type === 'road' && daylight < 0.35 && cam.zoom > 0.25) {
+    const lightR = 6 * cam.zoom;
     ctx.fillStyle = `rgba(255,230,150,${(0.35 - daylight) * 0.3})`;
     ctx.beginPath(); ctx.arc(sx, sy - h, lightR, 0, Math.PI * 2); ctx.fill();
   }
@@ -419,7 +520,7 @@ export default function IsometricCanvas({ gameState, onTileClick, onTileDrag }: 
     if (!parent) return;
     canvas.style.width = parent.clientWidth + 'px';
     canvas.style.height = parent.clientHeight + 'px';
-    setCamera({ x: parent.clientWidth / 2, y: parent.clientHeight / 5, zoom: 0.55 });
+    setCamera({ x: parent.clientWidth / 2, y: parent.clientHeight / 5, zoom: 0.28 });
   }, []);
 
   useEffect(() => {
