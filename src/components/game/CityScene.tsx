@@ -9,6 +9,7 @@ import { BuildingModel, TERRAIN_SET } from './BuildingModels';
 import { getFootprint } from '@/hooks/useGameState';
 import { getRoadVariant, RoadVariant, TrafficLight } from '@/lib/trafficLights';
 import { VehicleModelComponent } from './VehicleModels';
+import { NatureLayer, HomelessCamps } from './NatureModels';
 
 const AZIMUTH_ANGLES = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
 const DAY_LENGTH = 240;
@@ -523,6 +524,17 @@ export default function CityScene({ gameState, cameraAngle, cameraZoom, onTileCl
       {/* Terrain */}
       <Terrain grid={gameState.grid} gridSize={gridSize} />
       <WaterSurface grid={gameState.grid} gridSize={gridSize} />
+
+      {/* Nature decorations */}
+      <NatureLayer grid={gameState.grid} gridSize={gridSize} />
+
+      {/* Homeless camps when residential demand overflows */}
+      <HomelessCamps
+        grid={gameState.grid}
+        gridSize={gridSize}
+        demand={gameState.resources.demand.residential}
+        population={gameState.resources.population}
+      />
 
       {/* Buildings - position at center of footprint */}
       {buildings.map(b => (
